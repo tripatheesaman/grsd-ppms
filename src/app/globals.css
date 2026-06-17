@@ -1,0 +1,191 @@
+@import "tailwindcss";
+
+:root {
+  --color-primary: #003893;
+  --color-primary-dark: #002566;
+  --color-primary-light: #1a5bb8;
+  --color-accent: #dc143c;
+  --color-accent-dark: #b01030;
+  --color-accent-light: #f04d6a;
+  --color-surface: #f0f4fa;
+  --color-surface-strong: #e2eaf5;
+  --color-card: #ffffff;
+  --color-text: #0c1a33;
+  --color-text-soft: #5a6f8f;
+  --color-border: #cdd9eb;
+  --color-success: #0d7a4e;
+  --color-warning: #b45309;
+  --color-danger: #dc143c;
+  --shadow-sm: 0 1px 2px rgb(12 26 51 / 0.05);
+  --shadow-md: 0 4px 12px rgb(12 26 51 / 0.08);
+  --shadow-lg: 0 12px 32px rgb(12 26 51 / 0.12);
+  --radius-card: 1rem;
+}
+
+.dark {
+  --color-primary: #6eb3f7;
+  --color-primary-dark: #4a9ae8;
+  --color-primary-light: #8ec5ff;
+  --color-accent: #f07183;
+  --color-accent-dark: #d85a6c;
+  --color-accent-light: #ff9aab;
+  --color-surface: #070d18;
+  --color-surface-strong: #111b2e;
+  --color-card: #0f1729;
+  --color-text: #eef3fb;
+  --color-text-soft: #94a8c4;
+  --color-border: #243049;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-md: 0 4px 16px rgb(0 0 0 / 0.35);
+  --shadow-lg: 0 12px 40px rgb(0 0 0 / 0.45);
+}
+
+@theme inline {
+  --color-background: var(--color-surface);
+  --color-foreground: var(--color-text);
+  --font-sans: var(--font-source-sans);
+  --font-display: var(--font-plus-jakarta);
+  --font-mono: var(--font-geist-mono);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-source-sans), system-ui, sans-serif;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-display {
+  font-family: var(--font-plus-jakarta), var(--font-source-sans), system-ui, sans-serif;
+}
+
+/* Subtle app background pattern */
+.app-bg {
+  background-color: var(--color-surface);
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgb(0 56 147 / 0.08), transparent),
+    radial-gradient(ellipse 60% 40% at 100% 0%, rgb(220 20 60 / 0.05), transparent);
+}
+
+.dark .app-bg {
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgb(110 179 247 / 0.06), transparent),
+    radial-gradient(ellipse 60% 40% at 100% 0%, rgb(240 113 131 / 0.04), transparent);
+}
+
+/* Page layout */
+.page-container {
+  width: 100%;
+  max-width: 1600px;
+  margin-inline: auto;
+}
+
+.page-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+@media (min-width: 768px) {
+  .page-stack {
+    gap: 2rem;
+  }
+}
+
+/* Tables */
+.table-wrap {
+  margin-top: 1rem;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-border);
+}
+
+.table-modern {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  text-align: left;
+}
+
+.table-modern thead {
+  background: var(--color-surface-strong);
+}
+
+.table-modern th {
+  padding: 0.75rem 1rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-soft);
+  white-space: nowrap;
+}
+
+.table-modern td {
+  padding: 0.875rem 1rem;
+  border-top: 1px solid var(--color-border);
+  vertical-align: top;
+}
+
+.table-modern tbody tr {
+  transition: background 0.15s ease;
+}
+
+.table-modern tbody tr:hover {
+  background: var(--color-surface-strong);
+}
+
+/* Form sections in procurement form etc. */
+.form-section-title {
+  font-family: var(--font-plus-jakarta), system-ui, sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-text);
+  letter-spacing: -0.02em;
+}
+
+/* Mobile data cards */
+.data-card {
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.data-card:active {
+  border-color: var(--color-primary);
+}
+
+@media (min-width: 768px) {
+  .data-card:hover {
+    box-shadow: var(--shadow-sm);
+  }
+}
+
+/* Filter panel on small screens */
+@media (max-width: 1023px) {
+  .filter-panel-collapsed {
+    display: none;
+  }
+}
+@media (min-width: 1024px) {
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 4px;
+  }
+}

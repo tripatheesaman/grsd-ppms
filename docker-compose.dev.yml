@@ -1,0 +1,56 @@
+services:
+  db-dev:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD_DEV:-devrootpass}
+      MYSQL_DATABASE: ${MYSQL_DATABASE_DEV:-grsd_ppms_dev}
+      MYSQL_USER: ${MYSQL_USER_DEV:-devuser}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD_DEV:-devpass}
+    ports:
+      - "127.0.0.1:3309:3306"
+    volumes:
+      - db_dev_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  app-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    restart: unless-stopped
+    depends_on:
+      db-dev:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL_DEV:-mysql://devuser:devpass@db-dev:3306/grsd_ppms_dev}
+      JWT_SECRET: ${JWT_SECRET_DEV:-dev-jwt-secret-min-32-chars-long!!}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET_DEV:-dev-refresh-secret-min-32-chars!!}
+      CRON_SECRET: ${CRON_SECRET_DEV:-dev-cron-secret}
+      NODE_ENV: development
+      NEXT_PUBLIC_BASE_PATH: /ppms
+      UPLOAD_ROOT: /data/uploads
+    ports:
+      - "127.0.0.1:3007:3000"
+    volumes:
+      - ./src:/app/src
+      - ./prisma:/app/prisma
+      - ./prisma.config.ts:/app/prisma.config.ts
+      - ./public:/app/public
+      - ./package.json:/app/package.json
+      - ./package-lock.json:/app/package-lock.json
+      - ./tsconfig.json:/app/tsconfig.json
+      - ./next.config.ts:/app/next.config.ts
+      - ./postcss.config.mjs:/app/postcss.config.mjs
+      - ./eslint.config.mjs:/app/eslint.config.mjs
+      - node_modules_dev:/app/node_modules
+      - ./uploads-dev:/data/uploads
+    command: sh -c "npm install && npx prisma migrate deploy && npx prisma generate && npx tsx prisma/seed.ts && npm run dev"
+
+volumes:
+  db_dev_data:
+  node_modules_dev:

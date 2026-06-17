@@ -1,0 +1,670 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+  SUPERADMIN
+}
+
+enum ProcurementStatus {
+  DRAFT
+  ACTIVE
+  PREBID_OPEN
+  BID_OPEN_DAY
+  BID_CLOSED
+  BIDDERS_ENTERED
+  NO_BIDDERS
+  TECHNICAL_EVAL
+  TECHNICAL_DONE
+  LETTERS_SENT
+  PRICE_BID_SCHEDULED
+  PRICE_BID_OPEN
+  WITH_FINANCE
+  WINNER_SELECTED
+  LOI_ISSUED
+  LOA_ISSUED
+  CONTRACT_SIGNED
+  PDI_PHASE
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum DocumentTemplateType {
+  NOTICE
+  LOI_PASS
+  LOI_FAIL
+  LOI_WINNER
+  LOA
+  CONTRACT
+}
+
+enum ReminderSeverity {
+  UPCOMING
+  ALMOST_DUE
+  CRITICAL
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  GENERATE
+  TRANSITION
+  EXPORT
+}
+
+model User {
+  id              String           @id @default(cuid())
+  email           String           @unique
+  fullName        String
+  passwordHash    String
+  role            Role             @default(USER)
+  isActive        Boolean          @default(true)
+  permissions     UserPermission[]
+  refreshTokens   RefreshToken[]
+  auditLogs       AuditLog[]
+  events          ProcurementEvent[]
+  notifications   Notification[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@map("user")
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  key         String           @unique
+  name        String
+  description String?
+  rolePerms   RolePermission[]
+  users       UserPermission[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@map("permission")
+}
+
+model RolePermission {
+  id           String     @id @default(cuid())
+  role         Role
+  permissionId String
+  allowed      Boolean    @default(true)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([role, permissionId])
+  @@map("rolepermission")
+}
+
+model UserPermission {
+  id           String     @id @default(cuid())
+  userId       String
+  permissionId String
+  allowed      Boolean    @default(true)
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([userId, permissionId])
+  @@map("userpermission")
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  userAgent String?
+  ipAddress String?
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+
+  @@index([userId, expiresAt])
+  @@map("refreshtoken")
+}
+
+model SystemSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@map("systemsetting")
+}
+
+model ReferenceType {
+  id            String                  @id @default(cuid())
+  name          String
+  code          String                  @unique
+  isActive      Boolean                 @default(true)
+  sortOrder     Int                     @default(0)
+  references    ProcurementReference[]
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+
+  @@map("referencetype")
+}
+
+model MediaOfBid {
+  id           String        @id @default(cuid())
+  name         String
+  isActive     Boolean       @default(true)
+  sortOrder    Int           @default(0)
+  procurements Procurement[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@map("mediaofbid")
+}
+
+model BidType {
+  id                  String             @id @default(cuid())
+  name                String
+  defaultBidDays      Int                @default(0)
+  defaultPriceBidDays Int                @default(7)
+  isActive            Boolean            @default(true)
+  sortOrder       Int                @default(0)
+  templatePath    String?
+  procurements    Procurement[]
+  documentTemplates DocumentTemplate[]
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@map("bidtype")
+}
+
+model Sbd {
+  id           String        @id @default(cuid())
+  name         String
+  isActive     Boolean       @default(true)
+  sortOrder    Int           @default(0)
+  procurements Procurement[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@map("sbd")
+}
+
+model ContractType {
+  id           String        @id @default(cuid())
+  name         String
+  isActive     Boolean       @default(true)
+  sortOrder    Int           @default(0)
+  procurements Procurement[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@map("contracttype")
+}
+
+model Unit {
+  id           String        @id @default(cuid())
+  name         String
+  symbol       String?
+  isActive     Boolean       @default(true)
+  sortOrder    Int           @default(0)
+  procurements Procurement[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@map("unit")
+}
+
+model Currency {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  symbol    String
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  bidders   Bidder[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("currency")
+}
+
+model PaymentCondition {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  bidders   Bidder[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("paymentcondition")
+}
+
+model WorkDayCategory {
+  id           String                      @id @default(cuid())
+  name         String
+  isActive     Boolean                     @default(true)
+  sortOrder    Int                         @default(0)
+  procurements ProcurementWorkDayCategory[]
+  createdAt    DateTime                    @default(now())
+  updatedAt    DateTime                    @updatedAt
+
+  @@map("workdaycategory")
+}
+
+model WeeklyOffRule {
+  id        String   @id @default(cuid())
+  year      Int
+  month     Int
+  dayFrom   Int
+  dayTo     Int
+  offDays   Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([year, month])
+  @@map("weeklyoffrule")
+}
+
+model PublicHoliday {
+  id        String   @id @default(cuid())
+  year      Int
+  month     Int
+  day       Int
+  label     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([year, month, day])
+  @@map("publicholiday")
+}
+
+model BidderFieldDefinition {
+  id        String              @id @default(cuid())
+  key       String              @unique
+  label     String
+  fieldType String              @default("text")
+  required  Boolean             @default(false)
+  sortOrder Int                 @default(0)
+  isActive  Boolean             @default(true)
+  values    BidderFieldValue[]
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  @@map("bidderfielddefinition")
+}
+
+model ProcurementWorkflowField {
+  id             String                          @id @default(cuid())
+  stageKey       String
+  fieldKey       String
+  label          String
+  fieldType      String                          @default("TEXT")
+  optionsJson    Json?
+  anchorFieldKey String
+  position       String                          @default("AFTER")
+  sortOrder      Int                             @default(0)
+  required       Boolean                         @default(false)
+  hint           String?
+  isActive       Boolean                         @default(true)
+  values         ProcurementWorkflowFieldValue[]
+  createdAt      DateTime                        @default(now())
+  updatedAt      DateTime                        @updatedAt
+
+  @@unique([stageKey, fieldKey])
+  @@index([stageKey, isActive])
+  @@map("procurementworkflowfield")
+}
+
+model ProcurementWorkflowFieldValue {
+  id            String                   @id @default(cuid())
+  procurementId String
+  fieldId       String
+  value         String                   @db.Text
+  procurement   Procurement              @relation(fields: [procurementId], references: [id], onDelete: Cascade)
+  field         ProcurementWorkflowField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
+
+  @@unique([procurementId, fieldId])
+  @@index([procurementId])
+  @@map("procurementworkflowfieldvalue")
+}
+
+model Procurement {
+  id                      String                      @id @default(cuid())
+  title                   String
+  itemName                String
+  dtssrNumber             String?
+  status                  ProcurementStatus           @default(DRAFT)
+  mediaOfBidId            String?
+  bidTypeId               String?
+  sbdId                   String?
+  contractTypeId          String?
+  unitId                  String?
+  costEstimate            Decimal                     @db.Decimal(18, 2)
+  bsfPercent              Decimal                     @db.Decimal(5, 2)
+  bidFee                  Decimal?                    @db.Decimal(18, 2)
+  bidSecurity             Decimal?                    @db.Decimal(18, 2)
+  grandTotalWithVat       Decimal?                    @db.Decimal(18, 2)
+  totalQuantity           Decimal?                    @db.Decimal(18, 4)
+  noticeDate              DateTime?                   @db.Date
+  bidFeeSubmissionDate    DateTime?                   @db.Date
+  bidOpenDate             DateTime?                   @db.Date
+  prebidDate              DateTime?                   @db.Date
+  prebidTime              String                      @default("12:00")
+  bidSubmissionTime       String                      @default("16:00")
+  bidOpenTime             String                      @default("14:00")
+  bidValidityDays         Int?
+  bidValidityDate         DateTime?                   @db.Date
+  bidSecurityValidityDate DateTime?                   @db.Date
+  scheduledInitiationDate DateTime?                   @db.Date
+  scheduledCompletionDate DateTime?                   @db.Date
+  periodBegunAt           DateTime?
+  sourceProcurementId     String?
+  prebidAcknowledgedAt    DateTime?                   @db.Date
+  bidOpenAcknowledgedAt   DateTime?                   @db.Date
+  priceBidOpenDate        DateTime?                   @db.Date
+  priceBidAcknowledgedAt  DateTime?                   @db.Date
+  technicalEvalSentDate   DateTime?                   @db.Date
+  evaluationCommitteeSentDate DateTime?               @db.Date
+  warrantyDays            Int?
+  pgAmount                Decimal?                    @db.Decimal(18, 2)
+  pgValidityDate          DateTime?                   @db.Date
+  loiIssuedDate           DateTime?                   @db.Date
+  loaIssuedDate           DateTime?                   @db.Date
+  loaDocumentDate         DateTime?                   @db.Date
+  cinNumber               String?
+  supplierWitnessName     String?
+  supplierWitnessDesignation String?
+  supplierSigningAuthorityName String?
+  supplierSigningAuthorityDesignation String?
+  contractAgreementDate   DateTime?                   @db.Date
+  contractSignedDate      DateTime?                   @db.Date
+  poIssueDate             DateTime?                   @db.Date
+  pdiDate                 DateTime?                   @db.Date
+  pdiEndDate              DateTime?                   @db.Date
+  pdiCompletedAt          DateTime?
+  workCountdownTotalDays  Int?
+  deliveryReceivedDate    DateTime?                   @db.Date
+  contractFrozenAt        DateTime?
+  contractElapsedDays     Int                         @default(0)
+  settingsSnapshot        Json?
+  settingsSnapshotAt      DateTime?
+  mediaOfBid              MediaOfBid?                 @relation(fields: [mediaOfBidId], references: [id])
+  bidType                 BidType?                    @relation(fields: [bidTypeId], references: [id])
+  sbd                     Sbd?                        @relation(fields: [sbdId], references: [id])
+  contractType            ContractType?               @relation(fields: [contractTypeId], references: [id])
+  unit                    Unit?                       @relation(fields: [unitId], references: [id])
+  references              ProcurementReference[]
+  workDayCategories       ProcurementWorkDayCategory[]
+  bidders                 Bidder[]
+  pdiMembers              ProcurementPdiMember[]
+  events                  ProcurementEvent[]
+  generatedDocuments      GeneratedDocument[]
+  reminders               ReminderLog[]
+  workflowFieldValues     ProcurementWorkflowFieldValue[]
+  sourceProcurement       Procurement?                @relation("ProcurementRestart", fields: [sourceProcurementId], references: [id])
+  restartedFrom           Procurement[]               @relation("ProcurementRestart")
+  createdAt               DateTime                    @default(now())
+  updatedAt               DateTime                    @updatedAt
+
+  @@index([status])
+  @@index([noticeDate])
+  @@index([bidOpenDate])
+  @@index([title])
+  @@map("procurement")
+}
+
+model ProcurementReference {
+  id              String         @id @default(cuid())
+  procurementId   String
+  referenceTypeId String?
+  typeName        String
+  typeCode        String
+  number          String
+  procurement     Procurement    @relation(fields: [procurementId], references: [id], onDelete: Cascade)
+  referenceType   ReferenceType? @relation(fields: [referenceTypeId], references: [id], onDelete: SetNull)
+  createdAt       DateTime       @default(now())
+
+  @@index([procurementId])
+  @@map("procurementreference")
+}
+
+model ProcurementWorkDayCategory {
+  id                String           @id @default(cuid())
+  procurementId     String
+  workDayCategoryId String?
+  categoryName      String
+  days              Int              @default(0)
+  procurement       Procurement      @relation(fields: [procurementId], references: [id], onDelete: Cascade)
+  workDayCategory   WorkDayCategory? @relation(fields: [workDayCategoryId], references: [id], onDelete: SetNull)
+  createdAt         DateTime         @default(now())
+
+  @@unique([procurementId, workDayCategoryId])
+  @@map("procurementworkdaycategory")
+}
+
+model Bidder {
+  id                  String             @id @default(cuid())
+  procurementId       String
+  name                String
+  address             String
+  phone               String?
+  bidResponseDate     DateTime?          @db.Date
+  bidCurrencyId       String?
+  bidCurrencyCode     String?
+  bidCurrencyName     String?
+  bidCurrencySymbol   String?
+  paymentConditionId   String?
+  paymentConditionCode String?
+  paymentConditionName String?
+  passedTech          Boolean?
+  bidAmountWithVat    Decimal?           @db.Decimal(18, 2)
+  bidAmountWithoutVat Decimal?           @db.Decimal(18, 2)
+  isWinner            Boolean            @default(false)
+  procurement   Procurement        @relation(fields: [procurementId], references: [id], onDelete: Cascade)
+  bidCurrency   Currency?          @relation(fields: [bidCurrencyId], references: [id], onDelete: SetNull)
+  paymentCondition PaymentCondition? @relation(fields: [paymentConditionId], references: [id], onDelete: SetNull)
+  fieldValues   BidderFieldValue[]
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  @@index([procurementId])
+  @@map("bidder")
+}
+
+model BidderFieldValue {
+  id         String                 @id @default(cuid())
+  bidderId   String
+  fieldId    String?
+  fieldKey   String
+  fieldLabel String
+  value      String                 @db.Text
+  bidder     Bidder                 @relation(fields: [bidderId], references: [id], onDelete: Cascade)
+  field      BidderFieldDefinition? @relation(fields: [fieldId], references: [id], onDelete: SetNull)
+  createdAt  DateTime               @default(now())
+  updatedAt  DateTime               @updatedAt
+
+  @@unique([bidderId, fieldId])
+  @@map("bidderfieldvalue")
+}
+
+model ProcurementPdiMember {
+  id            String      @id @default(cuid())
+  procurementId String
+  name          String
+  designation   String
+  procurement   Procurement @relation(fields: [procurementId], references: [id], onDelete: Cascade)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([procurementId])
+  @@map("procurementpdimember")
+}
+
+model ProcurementEvent {
+  id            String      @id @default(cuid())
+  procurementId String
+  userId        String?
+  action        String
+  fromStatus    ProcurementStatus?
+  toStatus      ProcurementStatus?
+  payload       Json?
+  procurement   Procurement @relation(fields: [procurementId], references: [id], onDelete: Cascade)
+  user          User?       @relation(fields: [userId], references: [id])
+  createdAt     DateTime    @default(now())
+
+  @@index([procurementId, createdAt])
+  @@map("procurementevent")
+}
+
+model DocumentTemplate {
+  id           String               @id @default(cuid())
+  name         String
+  type         DocumentTemplateType
+  bidTypeId    String?
+  filePath     String
+  version      Int                  @default(1)
+  isActive     Boolean              @default(true)
+  bidType      BidType?             @relation(fields: [bidTypeId], references: [id])
+  placeholders TemplatePlaceholder[]
+  generated    GeneratedDocument[]
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  @@map("documenttemplate")
+}
+
+model TemplatePlaceholder {
+  id         String           @id @default(cuid())
+  templateId String
+  token      String
+  resolverKey String
+  sortOrder  Int              @default(0)
+  template   DocumentTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  createdAt  DateTime         @default(now())
+
+  @@index([templateId])
+  @@map("templateplaceholder")
+}
+
+model GeneratedDocument {
+  id            String                @id @default(cuid())
+  procurementId String
+  templateId    String?
+  templateName  String?
+  templateType  DocumentTemplateType?
+  filePath      String
+  procurement   Procurement           @relation(fields: [procurementId], references: [id], onDelete: Cascade)
+  template      DocumentTemplate?     @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  createdAt     DateTime              @default(now())
+
+  @@index([procurementId])
+  @@map("generateddocument")
+}
+
+model ReminderRule {
+  id                String   @id @default(cuid())
+  milestoneKey      String   @unique
+  label             String
+  enabled           Boolean  @default(true)
+  upcomingDays      Int      @default(7)
+  almostDueDays     Int      @default(3)
+  criticalDays      Int      @default(1)
+  remindDaysBefore  Json     @default("[7,3,1]")
+  repeatEveryDays   Int      @default(0)
+  notifyInApp       Boolean  @default(true)
+  sendEmail         Boolean  @default(true)
+  dateField         String?
+  milestoneType     String   @default("FIXED_DATE")
+  anchorDateField   String?
+  offsetWorkingDays Int?
+  sortOrder         Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@map("reminderrule")
+}
+
+model ReminderLog {
+  id            String           @id @default(cuid())
+  procurementId String
+  milestoneKey  String
+  severity      ReminderSeverity
+  targetDate    DateTime         @db.Date
+  sentAt        DateTime         @default(now())
+  procurement   Procurement      @relation(fields: [procurementId], references: [id], onDelete: Cascade)
+
+  @@unique([procurementId, milestoneKey, severity, targetDate])
+  @@map("reminderlog")
+}
+
+model SmtpSetting {
+  id        String   @id @default(cuid())
+  host      String
+  port      Int      @default(587)
+  secure    Boolean  @default(false)
+  username  String
+  password  String
+  fromEmail String
+  fromName  String
+  isActive  Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@map("smtpsetting")
+}
+
+model EmailTemplate {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  subject   String
+  bodyHtml  String   @db.Text
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@map("emailtemplate")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  message   String   @db.Text
+  link      String?
+  readAt    DateTime?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([userId, readAt])
+  @@map("notification")
+}
+
+model AuditLog {
+  id         String      @id @default(cuid())
+  userId     String?
+  action     AuditAction
+  entityType String
+  entityId   String?
+  before     Json?
+  after      Json?
+  ipAddress  String?
+  user       User?       @relation(fields: [userId], references: [id])
+  createdAt  DateTime    @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("auditlog")
+}

@@ -1,0 +1,11 @@
+node_modules
+.next
+.git
+uploads-dev
+.env
+.env.*
+!.env.dev
+config/.env.production
+*.md
+.vscode
+.cursor

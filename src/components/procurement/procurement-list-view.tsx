@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import toast from "react-hot-toast";
 import {
   ArrowRight,
   Calendar,
+  ChevronDown,
   Download,
   Eye,
   Filter,
@@ -22,14 +24,20 @@ import { Input, Select } from "@/components/ui/input";
 import { PaginationBar } from "@/components/ui/pagination";
 import { countdownTone, formatCountdown } from "@/lib/client/countdown";
 import { apiPath } from "@/lib/config/app-config";
+import { listNepaliFyOptions } from "@/lib/calendar/nepali-fy";
 import { formatCurrency } from "@/lib/currency";
 import { formatDualDate } from "@/lib/dates/display";
+import {
+  procurementListFiltersToSearchParams,
+  type ProcurementExportMode,
+} from "@/lib/procurement/list-filters";
 import {
   getWorkflowQueue,
   type WorkflowQueueKey,
 } from "@/lib/procurement/workflow-queues";
 import { STATUS_LABELS } from "@/lib/procurement/workflow";
 import { useListProcurementsQuery } from "@/store/api/procurementsApi";
+import { useGetLookupsQuery } from "@/store/api/settingsApi";
 import { hasPermission } from "@/store/slices/authSlice";
 import { useAppSelector } from "@/store/hooks";
 import type { ProcurementStatus } from "@prisma/client";
@@ -44,15 +52,23 @@ export function ProcurementListView({ queue, stage }: ProcurementListViewProps) 
   const queueKey = queue ?? stage ?? "all";
   const config = getWorkflowQueue(queueKey);
   const user = useAppSelector((s) => s.auth.user);
+  const accessToken = useAppSelector((s) => s.auth.accessToken);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [bidTypeId, setBidTypeId] = useState("");
+  const [mediaOfBidId, setMediaOfBidId] = useState("");
+  const [contractTypeId, setContractTypeId] = useState("");
+  const [unitId, setUnitId] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [nepaliFy, setNepaliFy] = useState("");
   const [sort, setSort] = useState("createdAt");
   const [order, setOrder] = useState<"asc" | "desc">("desc");
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
   const [now, setNow] = useState(() => Date.now());
 
   const showCountdown = config.showCountdown;
@@ -64,12 +80,27 @@ export function ProcurementListView({ queue, stage }: ProcurementListViewProps) 
     return () => window.clearInterval(timer);
   }, []);
 
-  const statusOptions = useMemo(() => {
-    if (config.statuses) {
-      return config.statuses.map((s) => [s, STATUS_LABELS[s]] as const);
+  useEffect(() => {
+    if (!exportMenuOpen) return;
+    function onPointerDown(event: MouseEvent) {
+      if (!exportMenuRef.current?.contains(event.target as Node)) {
+        setExportMenuOpen(false);
+      }
     }
-    return Object.entries(STATUS_LABELS);
-  }, [config.statuses]);
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [exportMenuOpen]);
+
+  const { data: bidTypesLookup } = useGetLookupsQuery("bid-types");
+  const { data: mediaOfBidLookup } = useGetLookupsQuery("media-of-bid");
+  const { data: contractTypesLookup } = useGetLookupsQuery("contract-types");
+  const { data: unitsLookup } = useGetLookupsQuery("units");
+  const nepaliFyOptions = useMemo(() => listNepaliFyOptions(), []);
+
+  const statusOptions = useMemo(
+    () => Object.entries(STATUS_LABELS) as Array<[ProcurementStatus, string]>,
+    [],
+  );
 
   const { data, isLoading } = useListProcurementsQuery({
     page,
@@ -78,40 +109,106 @@ export function ProcurementListView({ queue, stage }: ProcurementListViewProps) 
     status: status || undefined,
     queue: queueKey !== "all" && !status ? queueKey : undefined,
     bidTypeId: bidTypeId || undefined,
+    mediaOfBidId: mediaOfBidId || undefined,
+    contractTypeId: contractTypeId || undefined,
+    unitId: unitId || undefined,
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
+    nepaliFy: nepaliFy || undefined,
     sort,
     order,
   });
 
-  const bidTypes = useMemo(() => {
-    const map = new Map<string, string>();
-    data?.data.forEach((row) => {
-      if (row.bidTypeId && row.bidTypeName) map.set(row.bidTypeId, row.bidTypeName);
-    });
-    return [...map.entries()];
-  }, [data?.data]);
+  const bidTypes = useMemo(
+    () => (bidTypesLookup as Array<{ id: string; name: string }> | undefined) ?? [],
+    [bidTypesLookup],
+  );
+  const mediaOfBids = useMemo(
+    () => (mediaOfBidLookup as Array<{ id: string; name: string }> | undefined) ?? [],
+    [mediaOfBidLookup],
+  );
+  const contractTypes = useMemo(
+    () => (contractTypesLookup as Array<{ id: string; name: string }> | undefined) ?? [],
+    [contractTypesLookup],
+  );
+  const units = useMemo(
+    () => (unitsLookup as Array<{ id: string; name: string }> | undefined) ?? [],
+    [unitsLookup],
+  );
 
-  const activeFilterCount = [search, status, bidTypeId, dateFrom, dateTo].filter(Boolean).length;
+  const activeFilterCount = [
+    search,
+    status,
+    bidTypeId,
+    mediaOfBidId,
+    contractTypeId,
+    unitId,
+    dateFrom,
+    dateTo,
+    nepaliFy,
+  ].filter(Boolean).length;
 
   function resetFilters() {
     setSearch("");
     setStatus("");
     setBidTypeId("");
+    setMediaOfBidId("");
+    setContractTypeId("");
+    setUnitId("");
     setDateFrom("");
     setDateTo("");
+    setNepaliFy("");
     setSort("createdAt");
     setOrder("desc");
     setPage(1);
   }
 
-  const exportParams = new URLSearchParams({
-    ...(search ? { search } : {}),
-    ...(status ? { status } : {}),
-    ...(queueKey !== "all" && !status ? { queue: queueKey } : {}),
-  });
+  async function handleExport(mode: ProcurementExportMode) {
+    setExporting(true);
+    setExportMenuOpen(false);
+    try {
+      const params = procurementListFiltersToSearchParams({
+        search: search || undefined,
+        status: status || undefined,
+        queueKey,
+        bidTypeId: bidTypeId || undefined,
+        mediaOfBidId: mediaOfBidId || undefined,
+        contractTypeId: contractTypeId || undefined,
+        unitId: unitId || undefined,
+        dateFrom: dateFrom || undefined,
+        dateTo: dateTo || undefined,
+        nepaliFy: nepaliFy || undefined,
+        sort,
+        order,
+        page: mode === "page" ? page : undefined,
+        pageSize: mode === "page" ? 25 : undefined,
+        exportMode: mode,
+      });
+      const headers: HeadersInit = {};
+      if (accessToken) headers.authorization = `Bearer ${accessToken}`;
 
-  const exportUrl = `${apiPath("/api/procurements/export")}?${exportParams.toString()}`;
+      const response = await fetch(
+        `${apiPath("/api/procurements/export")}?${params.toString()}`,
+        { headers, credentials: "include" },
+      );
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || "Export failed");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `procurements-${mode}-${Date.now()}.xlsx`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      toast.success("Export downloaded");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Export failed");
+    } finally {
+      setExporting(false);
+    }
+  }
   const StageIcon = config.icon;
 
   return (
@@ -129,12 +226,44 @@ export function ProcurementListView({ queue, stage }: ProcurementListViewProps) 
           </div>
           <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
             {hasPermission(user, "procurement.export") && (
-              <a href={exportUrl} target="_blank" rel="noreferrer" className="flex-1 sm:flex-none">
-                <Button variant="secondary" type="button" className="w-full sm:w-auto">
+              <div className="relative flex-1 sm:flex-none" ref={exportMenuRef}>
+                <Button
+                  variant="secondary"
+                  type="button"
+                  className="w-full sm:w-auto"
+                  disabled={exporting}
+                  onClick={() => setExportMenuOpen((open) => !open)}
+                >
                   <Download className="h-4 w-4" />
-                  <span className="hidden sm:inline">Export</span>
+                  <span className="hidden sm:inline">{exporting ? "Exporting…" : "Export"}</span>
+                  <ChevronDown className="h-4 w-4" />
                 </Button>
-              </a>
+                {exportMenuOpen && (
+                  <div className="absolute right-0 z-20 mt-2 w-56 rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-2 shadow-lg">
+                    <button
+                      type="button"
+                      className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-[var(--color-surface-strong)]"
+                      onClick={() => handleExport("filtered")}
+                    >
+                      Export with current filters
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-[var(--color-surface-strong)]"
+                      onClick={() => handleExport("page")}
+                    >
+                      Export current page
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-[var(--color-surface-strong)]"
+                      onClick={() => handleExport("all")}
+                    >
+                      Export all in this queue
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
             {hasPermission(user, "procurement.create") && queueKey === "all" && (
               <Link href="/procurements/new" className="flex-1 sm:flex-none">
@@ -183,7 +312,7 @@ export function ProcurementListView({ queue, stage }: ProcurementListViewProps) 
         </CardHeader>
 
         <div
-          className={`grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 ${
+          className={`grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 ${
             filtersOpen ? "" : "hidden lg:grid"
           }`}
         >
@@ -206,9 +335,7 @@ export function ProcurementListView({ queue, stage }: ProcurementListViewProps) 
               setPage(1);
             }}
           >
-            <option value="">
-              {config.statuses ? `All in ${config.shortLabel}` : "All statuses"}
-            </option>
+            <option value="">All statuses</option>
             {statusOptions.map(([k, v]) => (
               <option key={k} value={k}>
                 {v}
@@ -224,9 +351,73 @@ export function ProcurementListView({ queue, stage }: ProcurementListViewProps) 
             }}
           >
             <option value="">All bid types</option>
-            {bidTypes.map(([id, name]) => (
-              <option key={id} value={id}>
-                {name}
+            {bidTypes.map((type) => (
+              <option key={type.id} value={type.id}>
+                {type.name}
+              </option>
+            ))}
+          </Select>
+          <Select
+            label="Media of bid"
+            value={mediaOfBidId}
+            onChange={(e) => {
+              setMediaOfBidId(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="">All media</option>
+            {mediaOfBids.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
+          </Select>
+          <Select
+            label="Contract type"
+            value={contractTypeId}
+            onChange={(e) => {
+              setContractTypeId(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="">All contract types</option>
+            {contractTypes.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
+          </Select>
+          <Select
+            label="Unit"
+            value={unitId}
+            onChange={(e) => {
+              setUnitId(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="">All units</option>
+            {units.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
+          </Select>
+          <Select
+            label="Nepali FY"
+            value={nepaliFy}
+            onChange={(e) => {
+              setNepaliFy(e.target.value);
+              if (e.target.value) {
+                setDateFrom("");
+                setDateTo("");
+              }
+              setPage(1);
+            }}
+          >
+            <option value="">All fiscal years</option>
+            {nepaliFyOptions.map((fy) => (
+              <option key={fy.value} value={fy.value}>
+                {fy.label}
               </option>
             ))}
           </Select>
@@ -236,6 +427,7 @@ export function ProcurementListView({ queue, stage }: ProcurementListViewProps) 
             value={dateFrom}
             onChange={(e) => {
               setDateFrom(e.target.value);
+              if (e.target.value) setNepaliFy("");
               setPage(1);
             }}
           />
@@ -245,6 +437,7 @@ export function ProcurementListView({ queue, stage }: ProcurementListViewProps) 
             value={dateTo}
             onChange={(e) => {
               setDateTo(e.target.value);
+              if (e.target.value) setNepaliFy("");
               setPage(1);
             }}
           />

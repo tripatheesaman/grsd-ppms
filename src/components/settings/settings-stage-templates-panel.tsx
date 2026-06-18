@@ -319,7 +319,7 @@ export function SettingsStageTemplatesPanel() {
   const [newBidTypeScoped, setNewBidTypeScoped] = useState(false);
 
   const stageDef = WORKFLOW_STAGE_DEFINITIONS.find((s) => s.key === stageKey)!;
-  const stageSlots = ((slots ?? []) as StageTemplateSlot[]).sort(
+  const stageSlots = [...((slots ?? []) as StageTemplateSlot[])].sort(
     (a, b) => a.sortOrder - b.sortOrder || a.label.localeCompare(b.label),
   );
 

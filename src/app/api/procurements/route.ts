@@ -1,18 +1,21 @@
 import { NextRequest } from "next/server";
-import { Prisma } from "@prisma/client";
+import { ProcurementStatus } from "@prisma/client";
 import { z } from "zod";
 import { handleRoute, jsonOk } from "@/lib/api/response";
 import { parsePagination, paginationMeta } from "@/lib/api/pagination";
-import { dateFromDb, dateOnlyToDb } from "@/lib/dates";
+import { dateFromDb } from "@/lib/dates";
+import {
+  buildProcurementListWhere,
+  buildProcurementOrderBy,
+  parseProcurementListFilters,
+} from "@/lib/procurement/list-filters";
 import { calculateWorkCountdown } from "@/lib/procurement/work-countdown";
 import { createOrUpdateProcurement } from "@/lib/procurement/service";
 import { resolveProcurementCalculationContext } from "@/lib/procurement/settings-snapshot";
 import {
-  buildQueueWhere,
   computeDaysInStage,
   countActiveBidders,
   getWorkflowQueue,
-  type WorkflowQueueKey,
 } from "@/lib/procurement/workflow-queues";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/security/auth-guard";
@@ -48,60 +51,27 @@ const createSchema = z.object({
     .default([]),
 });
 
-function applyQueueFilter(where: Prisma.ProcurementWhereInput, queueKey: WorkflowQueueKey) {
-  const queueWhere = buildQueueWhere(queueKey);
-  Object.assign(where, queueWhere);
-}
-
 export async function GET(request: NextRequest) {
   return handleRoute(async () => {
     await requirePermission(request, "procurement.view");
-    const params = parsePagination(request.nextUrl.searchParams);
-    const search = request.nextUrl.searchParams.get("search")?.trim();
-    const status = request.nextUrl.searchParams.get("status");
-    const bidTypeId = request.nextUrl.searchParams.get("bidTypeId");
-    const dateFrom = request.nextUrl.searchParams.get("dateFrom");
-    const dateTo = request.nextUrl.searchParams.get("dateTo");
-    const sort = request.nextUrl.searchParams.get("sort") ?? "createdAt";
-    const order = request.nextUrl.searchParams.get("order") === "asc" ? "asc" : "desc";
-    const stage = request.nextUrl.searchParams.get("stage");
-    const queue = request.nextUrl.searchParams.get("queue");
+    const searchParams = request.nextUrl.searchParams;
+    const params = parsePagination(searchParams);
+    const filters = parseProcurementListFilters(searchParams);
+    const where = buildProcurementListWhere(filters);
+    const orderBy = buildProcurementOrderBy(filters);
 
-    const where: Prisma.ProcurementWhereInput = {};
-    if (search) {
-      where.OR = [
-        { title: { contains: search } },
-        { itemName: { contains: search } },
-        { dtssrNumber: { contains: search } },
-      ];
-    }
-    if (status) where.status = status as Prisma.EnumProcurementStatusFilter["equals"];
-
-    const queueKey = (queue ?? stage ?? "all") as WorkflowQueueKey;
     let activeQueue = getWorkflowQueue("all");
-    if (!status && queueKey !== "all") {
-      applyQueueFilter(where, queueKey);
-      activeQueue = getWorkflowQueue(queueKey);
+    if (!filters.status && filters.queueKey !== "all") {
+      activeQueue = getWorkflowQueue(filters.queueKey);
     }
 
-    const statusesParam = request.nextUrl.searchParams.get("statuses");
-    if (!status && !queue && !stage && statusesParam) {
+    const statusesParam = searchParams.get("statuses");
+    if (!filters.status && filters.queueKey === "all" && statusesParam) {
       const list = statusesParam.split(",").map((s) => s.trim()).filter(Boolean);
       if (list.length) {
-        where.status = { in: list as Prisma.EnumProcurementStatusFilter["in"] };
+        where.status = { in: list as ProcurementStatus[] };
       }
     }
-
-    if (bidTypeId) where.bidTypeId = bidTypeId;
-    if (dateFrom || dateTo) {
-      where.noticeDate = {};
-      if (dateFrom) where.noticeDate.gte = dateOnlyToDb(dateFrom);
-      if (dateTo) where.noticeDate.lte = dateOnlyToDb(dateTo);
-    }
-
-    const orderBy: Prisma.ProcurementOrderByWithRelationInput = {
-      [sort]: order,
-    };
 
     const [total, rows] = await Promise.all([
       prisma.procurement.count({ where }),
@@ -112,6 +82,7 @@ export async function GET(request: NextRequest) {
         orderBy,
         include: {
           bidType: true,
+          mediaOfBid: true,
           bidders: { select: { passedTech: true } },
         },
       }),
@@ -176,6 +147,7 @@ export async function GET(request: NextRequest) {
           bidOpenDate: dateFromDb(r.bidOpenDate),
           bidTypeName: r.bidType?.name ?? null,
           bidTypeId: r.bidTypeId,
+          mediaOfBidName: r.mediaOfBid?.name ?? null,
           workCountdownRemainingDays: remainingDays,
           workCountdownDueDate: dueDate,
           activeBidderCount,

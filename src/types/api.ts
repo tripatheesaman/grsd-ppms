@@ -32,6 +32,7 @@ export type ProcurementListItem = {
   bidOpenDate: string | null;
   bidTypeName: string | null;
   bidTypeId: string | null;
+  mediaOfBidName?: string | null;
   workCountdownRemainingDays?: number | null;
   workCountdownDueDate?: string | null;
   activeBidderCount?: number | null;

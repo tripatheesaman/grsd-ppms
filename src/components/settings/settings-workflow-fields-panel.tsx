@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { GripVertical, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, GripVertical, Plus, Save, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/loading-state";
@@ -12,22 +12,28 @@ import {
   WORKFLOW_FIELD_TYPES,
   WORKFLOW_STAGE_DEFINITIONS,
   buildWorkflowFieldLayout,
+  layoutItemFieldRef,
   type CustomWorkflowField,
+  type LayoutFieldItem,
   type WorkflowStageKey,
 } from "@/lib/procurement/stage-field-catalog";
 import {
   useCreateWorkflowFieldMutation,
   useDeleteWorkflowFieldMutation,
+  useGetWorkflowFieldOrderQuery,
   useGetWorkflowFieldsQuery,
+  useSaveWorkflowFieldOrderMutation,
   useUpdateWorkflowFieldMutation,
 } from "@/store/api/settingsApi";
 
 export function SettingsWorkflowFieldsPanel() {
   const [stageKey, setStageKey] = useState(WORKFLOW_STAGE_DEFINITIONS[0]!.key);
   const { data: allFields, isLoading } = useGetWorkflowFieldsQuery(undefined);
+  const { data: savedOrderRows } = useGetWorkflowFieldOrderQuery(stageKey);
   const [createField] = useCreateWorkflowFieldMutation();
   const [updateField] = useUpdateWorkflowFieldMutation();
   const [deleteField] = useDeleteWorkflowFieldMutation();
+  const [saveFieldOrder, { isLoading: savingOrder }] = useSaveWorkflowFieldOrderMutation();
 
   const [newLabel, setNewLabel] = useState("");
   const [newType, setNewType] = useState("TEXT");
@@ -36,18 +42,66 @@ export function SettingsWorkflowFieldsPanel() {
   const [newOptions, setNewOptions] = useState("");
   const [newRequired, setNewRequired] = useState(false);
   const [newHint, setNewHint] = useState("");
+  const [orderedLayout, setOrderedLayout] = useState<LayoutFieldItem[]>([]);
+  const [orderDirty, setOrderDirty] = useState(false);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
 
   const stageDef = WORKFLOW_STAGE_DEFINITIONS.find((s) => s.key === stageKey)!;
   const stageFields = useMemo(
     () => ((allFields ?? []) as CustomWorkflowField[]).filter((f) => f.stageKey === stageKey),
     [allFields, stageKey],
   );
-  const layout = useMemo(
-    () => buildWorkflowFieldLayout(stageKey, stageFields),
-    [stageKey, stageFields],
+
+  const fieldOrder = useMemo(
+    () =>
+      ((savedOrderRows ?? []) as Array<{ fieldRef: string; sortOrder: number }>).map((row) => ({
+        fieldRef: row.fieldRef,
+        sortOrder: row.sortOrder,
+      })),
+    [savedOrderRows],
   );
 
+  const defaultLayout = useMemo(
+    () => buildWorkflowFieldLayout(stageKey, stageFields, { fieldOrder }),
+    [stageKey, stageFields, fieldOrder],
+  );
+
+  useEffect(() => {
+    setOrderedLayout(defaultLayout);
+    setOrderDirty(false);
+  }, [defaultLayout, stageKey]);
+
   const anchorOptions = stageDef.fields;
+
+  function moveItem(from: number, to: number) {
+    if (from === to || from < 0 || to < 0 || from >= orderedLayout.length || to >= orderedLayout.length) {
+      return;
+    }
+    setOrderedLayout((prev) => {
+      const next = [...prev];
+      const [item] = next.splice(from, 1);
+      if (!item) return prev;
+      next.splice(to, 0, item);
+      return next;
+    });
+    setOrderDirty(true);
+  }
+
+  async function handleSaveOrder() {
+    try {
+      await saveFieldOrder({
+        stageKey,
+        items: orderedLayout.map((item, index) => ({
+          fieldRef: layoutItemFieldRef(item),
+          sortOrder: index,
+        })),
+      }).unwrap();
+      toast.success("Field order saved");
+      setOrderDirty(false);
+    } catch {
+      toast.error("Failed to save field order");
+    }
+  }
 
   async function handleAdd() {
     if (!newLabel.trim()) {
@@ -91,9 +145,8 @@ export function SettingsWorkflowFieldsPanel() {
           <div>
             <CardTitle>Workflow custom fields</CardTitle>
             <CardDescription>
-              Add extra input fields before or after any built-in field at each workflow stage.
-              Custom fields appear on the procurement detail screen and create/edit form when that
-              stage is active.
+              Add extra input fields and arrange the display order of all built-in and custom fields
+              at each workflow stage.
             </CardDescription>
           </div>
         </CardHeader>
@@ -116,27 +169,45 @@ export function SettingsWorkflowFieldsPanel() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Field order preview</CardTitle>
-          <CardDescription>
-            Built-in fields (gray) and your custom fields (highlighted) in display order
-          </CardDescription>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle className="text-lg">Field order</CardTitle>
+              <CardDescription>
+                Drag fields or use arrows to reorder. Save when you are done.
+              </CardDescription>
+            </div>
+            {orderDirty && (
+              <Button onClick={handleSaveOrder} disabled={savingOrder}>
+                <Save className="h-4 w-4" />
+                {savingOrder ? "Saving…" : "Save order"}
+              </Button>
+            )}
+          </div>
         </CardHeader>
         {isLoading ? (
           <p className="text-sm text-[var(--color-text-soft)]">Loading…</p>
-        ) : layout.length === 0 ? (
+        ) : orderedLayout.length === 0 ? (
           <EmptyState title="No fields defined for this stage" />
         ) : (
           <ol className="space-y-2">
-            {layout.map((item, idx) => (
+            {orderedLayout.map((item, idx) => (
               <li
                 key={item.kind === "builtin" ? `b-${item.fieldKey}` : `c-${item.id}`}
+                draggable
+                onDragStart={() => setDragIndex(idx)}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={() => {
+                  if (dragIndex !== null) moveItem(dragIndex, idx);
+                  setDragIndex(null);
+                }}
+                onDragEnd={() => setDragIndex(null)}
                 className={`flex items-center gap-3 rounded-xl border px-4 py-3 ${
                   item.kind === "builtin"
                     ? "border-[var(--color-border)] bg-[var(--color-surface-strong)]/40"
                     : "border-[var(--color-primary)]/30 bg-[var(--color-primary)]/5"
-                }`}
+                } ${dragIndex === idx ? "opacity-60" : ""}`}
               >
-                <GripVertical className="h-4 w-4 shrink-0 text-[var(--color-text-soft)]" />
+                <GripVertical className="h-4 w-4 shrink-0 cursor-grab text-[var(--color-text-soft)]" />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-semibold text-[var(--color-text)]">{item.label}</span>
@@ -149,21 +220,28 @@ export function SettingsWorkflowFieldsPanel() {
                     <p className="mt-0.5 text-xs text-[var(--color-text-soft)]">{item.hint}</p>
                   )}
                 </div>
-                {item.kind === "custom" && (
-                  <div className="flex shrink-0 gap-1">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={async () => {
-                        await updateField({
-                          id: item.id,
-                          body: { sortOrder: Math.max(0, idx) },
-                        });
-                      }}
-                    >
-                      Order {idx + 1}
-                    </Button>
+                <div className="flex shrink-0 gap-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={idx === 0}
+                    onClick={() => moveItem(idx, idx - 1)}
+                    aria-label="Move up"
+                  >
+                    <ArrowUp className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={idx === orderedLayout.length - 1}
+                    onClick={() => moveItem(idx, idx + 1)}
+                    aria-label="Move down"
+                  >
+                    <ArrowDown className="h-4 w-4" />
+                  </Button>
+                  {item.kind === "custom" && (
                     <Button
                       type="button"
                       variant="danger"
@@ -176,8 +254,8 @@ export function SettingsWorkflowFieldsPanel() {
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
-                  </div>
-                )}
+                  )}
+                </div>
               </li>
             ))}
           </ol>
@@ -188,7 +266,7 @@ export function SettingsWorkflowFieldsPanel() {
         <CardHeader>
           <CardTitle className="text-lg">Add custom field</CardTitle>
           <CardDescription>
-            Choose where to insert the new field relative to an existing built-in field
+            New fields are added to the end of the order. You can reposition them above.
           </CardDescription>
         </CardHeader>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -198,11 +276,7 @@ export function SettingsWorkflowFieldsPanel() {
             value={newLabel}
             onChange={(e) => setNewLabel(e.target.value)}
           />
-          <Select
-            label="Field type"
-            value={newType}
-            onChange={(e) => setNewType(e.target.value)}
-          >
+          <Select label="Field type" value={newType} onChange={(e) => setNewType(e.target.value)}>
             {WORKFLOW_FIELD_TYPES.map((t) => (
               <option key={t.value} value={t.value}>
                 {t.label}
@@ -267,17 +341,12 @@ export function SettingsWorkflowFieldsPanel() {
           </CardHeader>
           <div className="space-y-4">
             {stageFields.map((field) => (
-              <div
-                key={field.id}
-                className="rounded-xl border border-[var(--color-border)] p-4"
-              >
+              <div key={field.id} className="rounded-xl border border-[var(--color-border)] p-4">
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   <Input
                     label="Label"
                     value={field.label}
-                    onChange={(e) =>
-                      updateField({ id: field.id, body: { label: e.target.value } })
-                    }
+                    onChange={(e) => updateField({ id: field.id, body: { label: e.target.value } })}
                   />
                   <Select
                     label="Type"

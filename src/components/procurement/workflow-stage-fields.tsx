@@ -7,6 +7,7 @@ import type { CustomWorkflowField } from "@/lib/procurement/stage-field-catalog"
 type WorkflowStageFieldsProps = {
   stageKey: string;
   customFields: CustomWorkflowField[];
+  fieldOrder?: Array<{ fieldRef: string; sortOrder: number }>;
   values: Record<string, string>;
   onValueChange: (fieldId: string, value: string) => void;
   builtinRenderers: Record<string, ReactNode>;
@@ -18,6 +19,7 @@ type WorkflowStageFieldsProps = {
 export function WorkflowStageFields({
   stageKey,
   customFields,
+  fieldOrder,
   values,
   onValueChange,
   builtinRenderers,
@@ -29,6 +31,7 @@ export function WorkflowStageFields({
     <WorkflowFieldLayout
       stageKey={stageKey}
       customFields={customFields}
+      fieldOrder={fieldOrder}
       builtinRenderers={builtinRenderers}
       values={values}
       onValueChange={onValueChange}

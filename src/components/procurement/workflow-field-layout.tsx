@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import {
   buildWorkflowFieldLayout,
   type CustomWorkflowField,
+  type WorkflowFieldOrderEntry,
   type WorkflowStageKey,
 } from "@/lib/procurement/stage-field-catalog";
 import { WorkflowCustomFieldInput } from "@/components/procurement/workflow-custom-field-input";
@@ -12,6 +13,7 @@ import { WorkflowCustomFieldInput } from "@/components/procurement/workflow-cust
 type WorkflowFieldLayoutProps = {
   stageKey: WorkflowStageKey | string;
   customFields: CustomWorkflowField[];
+  fieldOrder?: WorkflowFieldOrderEntry[];
   builtinRenderers: Record<string, ReactNode>;
   values: Record<string, string>;
   onValueChange: (fieldId: string, value: string) => void;
@@ -23,6 +25,7 @@ type WorkflowFieldLayoutProps = {
 export function WorkflowFieldLayout({
   stageKey,
   customFields,
+  fieldOrder,
   builtinRenderers,
   values,
   onValueChange,
@@ -31,8 +34,12 @@ export function WorkflowFieldLayout({
   visibleBuiltinKeys,
 }: WorkflowFieldLayoutProps) {
   const layout = useMemo(
-    () => buildWorkflowFieldLayout(stageKey, customFields, { visibleBuiltinKeys }),
-    [stageKey, customFields, visibleBuiltinKeys],
+    () =>
+      buildWorkflowFieldLayout(stageKey, customFields, {
+        visibleBuiltinKeys,
+        fieldOrder,
+      }),
+    [stageKey, customFields, visibleBuiltinKeys, fieldOrder],
   );
 
   return (

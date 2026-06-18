@@ -247,6 +247,7 @@ export function ProcurementForm({
         <WorkflowStageFields
           stageKey="procurement_create"
           customFields={workflow.customFields}
+          fieldOrder={workflow.fieldOrder}
           values={workflow.values}
           onValueChange={workflow.setValue}
           className="mt-4 grid gap-4 sm:grid-cols-2"
@@ -375,6 +376,7 @@ export function ProcurementForm({
         <WorkflowStageFields
           stageKey="procurement_create"
           customFields={workflow.customFields}
+          fieldOrder={workflow.fieldOrder}
           values={workflow.values}
           onValueChange={workflow.setValue}
           className="mt-4 grid gap-4 sm:grid-cols-2"
@@ -412,6 +414,7 @@ export function ProcurementForm({
         <WorkflowStageFields
           stageKey="procurement_create"
           customFields={workflow.customFields}
+          fieldOrder={workflow.fieldOrder}
           values={workflow.values}
           onValueChange={workflow.setValue}
           className="mt-4 grid gap-4 sm:grid-cols-2"

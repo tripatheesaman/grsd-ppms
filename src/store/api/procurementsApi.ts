@@ -34,7 +34,11 @@ export const procurementsApi = baseApi.injectEndpoints({
       providesTags: [{ type: "Procurements", id: "QUEUE_COUNTS" }],
     }),
     getProcurementWorkflowFields: builder.query<
-      { fields: unknown[]; values: Record<string, string> },
+      {
+        fields: unknown[];
+        values: Record<string, string>;
+        fieldOrderByStage?: Record<string, Array<{ fieldRef: string; sortOrder: number }>>;
+      },
       { procurementId: string; stageKey?: string }
     >({
       query: ({ procurementId, stageKey }) => ({
@@ -215,8 +219,16 @@ export const procurementsApi = baseApi.injectEndpoints({
         winnerBidderId: string;
         bidCurrencyId: string;
         paymentConditionId: string;
-        bidAmountWithVat: number;
-        bidAmountWithoutVat: number;
+        bidAmountWithoutVatLines: Array<{
+          currencyId: string;
+          amount: number;
+          forexRate?: number | null;
+        }>;
+        bidAmountWithVatLines?: Array<{
+          currencyId: string;
+          amount: number;
+          forexRate?: number | null;
+        }>;
         warrantyDays: number;
         workDays: Array<{ workDayCategoryId: string; days: number }>;
       }

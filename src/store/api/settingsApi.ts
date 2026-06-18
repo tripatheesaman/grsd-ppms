@@ -136,13 +136,75 @@ export const settingsApi = baseApi.injectEndpoints({
       query: (id) => ({ url: `/settings/workflow-fields/${id}`, method: "DELETE" }),
       invalidatesTags: ["WorkflowFields"],
     }),
+    getWorkflowFieldOrder: builder.query<
+      Array<{ stageKey?: string; fieldRef: string; sortOrder: number }>,
+      string | void
+    >({
+      query: (stageKey) => ({
+        url: "/settings/workflow-fields/order",
+        params: stageKey ? { stageKey } : undefined,
+      }),
+      providesTags: ["WorkflowFields"],
+    }),
+    saveWorkflowFieldOrder: builder.mutation<
+      { success: boolean },
+      { stageKey: string; items: Array<{ fieldRef: string; sortOrder: number }> }
+    >({
+      query: (body) => ({
+        url: "/settings/workflow-fields/order",
+        method: "PUT",
+        body,
+      }),
+      invalidatesTags: ["WorkflowFields"],
+    }),
+    getStageTemplateSlots: builder.query<unknown[], string | void>({
+      query: (stageKey) => ({
+        url: "/settings/stage-templates",
+        params: stageKey ? { stageKey } : undefined,
+      }),
+      providesTags: ["StageTemplates"],
+    }),
+    createStageTemplateSlot: builder.mutation<unknown, Record<string, unknown>>({
+      query: (body) => ({ url: "/settings/stage-templates", method: "POST", body }),
+      invalidatesTags: ["StageTemplates"],
+    }),
+    updateStageTemplateSlot: builder.mutation<
+      unknown,
+      { id: string; body: Record<string, unknown> }
+    >({
+      query: ({ id, body }) => ({
+        url: `/settings/stage-templates/${id}`,
+        method: "PUT",
+        body,
+      }),
+      invalidatesTags: ["StageTemplates"],
+    }),
+    deleteStageTemplateSlot: builder.mutation<{ success: boolean }, string>({
+      query: (id) => ({ url: `/settings/stage-templates/${id}`, method: "DELETE" }),
+      invalidatesTags: ["StageTemplates"],
+    }),
     getSmtp: builder.query<Record<string, unknown> | null, void>({
       query: () => "/settings/smtp",
     }),
     updateSmtp: builder.mutation<Record<string, unknown>, Record<string, unknown>>({
       query: (body) => ({ url: "/settings/smtp", method: "PUT", body }),
     }),
-    getTemplates: builder.query<unknown[], { type?: string; bidTypeId?: string } | void>({
+    getWorkflowDateValidation: builder.query<{ enabled: boolean }, void>({
+      query: () => "/settings/workflow-date-validation",
+      providesTags: ["Settings"],
+    }),
+    setWorkflowDateValidation: builder.mutation<{ enabled: boolean }, { enabled: boolean }>({
+      query: (body) => ({
+        url: "/settings/workflow-date-validation",
+        method: "PUT",
+        body,
+      }),
+      invalidatesTags: ["Settings"],
+    }),
+    getTemplates: builder.query<
+      unknown[],
+      { type?: string; bidTypeId?: string; stageTemplateSlotId?: string } | void
+    >({
       query: (params) => ({
         url: "/templates",
         params:
@@ -150,6 +212,9 @@ export const settingsApi = baseApi.injectEndpoints({
             ? {
                 ...(params.type ? { type: params.type } : {}),
                 ...(params.bidTypeId !== undefined ? { bidTypeId: params.bidTypeId } : {}),
+                ...(params.stageTemplateSlotId
+                  ? { stageTemplateSlotId: params.stageTemplateSlotId }
+                  : {}),
               }
             : undefined,
       }),
@@ -157,7 +222,13 @@ export const settingsApi = baseApi.injectEndpoints({
     }),
     uploadTemplate: builder.mutation<
       Record<string, unknown>,
-      { name: string; type: string; bidTypeId?: string | null; file: File }
+      {
+        name: string;
+        type: string;
+        bidTypeId?: string | null;
+        stageTemplateSlotId?: string | null;
+        file: File;
+      }
     >({
       queryFn: async (body, api) => {
         const state = api.getState() as { auth: { accessToken: string | null } };
@@ -169,6 +240,9 @@ export const settingsApi = baseApi.injectEndpoints({
           formData.append("bidTypeId", body.bidTypeId);
         } else {
           formData.append("bidTypeId", "null");
+        }
+        if (body.stageTemplateSlotId) {
+          formData.append("stageTemplateSlotId", body.stageTemplateSlotId);
         }
 
         const headers: HeadersInit = {};
@@ -222,8 +296,16 @@ export const {
   useCreateWorkflowFieldMutation,
   useUpdateWorkflowFieldMutation,
   useDeleteWorkflowFieldMutation,
+  useGetWorkflowFieldOrderQuery,
+  useSaveWorkflowFieldOrderMutation,
+  useGetStageTemplateSlotsQuery,
+  useCreateStageTemplateSlotMutation,
+  useUpdateStageTemplateSlotMutation,
+  useDeleteStageTemplateSlotMutation,
   useGetSmtpQuery,
   useUpdateSmtpMutation,
+  useGetWorkflowDateValidationQuery,
+  useSetWorkflowDateValidationMutation,
   useGetTemplatesQuery,
   useUploadTemplateMutation,
   useDeleteTemplateMutation,

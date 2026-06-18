@@ -11,6 +11,7 @@ export async function GET(request: NextRequest) {
     await requireAnyPermission(request, ["settings.view", "templates.manage"]);
     const type = request.nextUrl.searchParams.get("type") as DocumentTemplateType | null;
     const bidTypeId = request.nextUrl.searchParams.get("bidTypeId");
+    const stageTemplateSlotId = request.nextUrl.searchParams.get("stageTemplateSlotId");
     const rows = await prisma.documentTemplate.findMany({
       where: {
         ...(type ? { type } : {}),
@@ -19,8 +20,13 @@ export async function GET(request: NextRequest) {
           : bidTypeId
             ? { bidTypeId }
             : {}),
+        ...(stageTemplateSlotId ? { stageTemplateSlotId } : {}),
       },
-      include: { bidType: true, placeholders: { orderBy: { sortOrder: "asc" } } },
+      include: {
+        bidType: true,
+        stageTemplateSlot: true,
+        placeholders: { orderBy: { sortOrder: "asc" } },
+      },
       orderBy: [{ bidTypeId: "asc" }, { version: "desc" }],
     });
     return jsonOk(rows);
@@ -36,6 +42,11 @@ export async function POST(request: NextRequest) {
     const bidTypeIdRaw = form.get("bidTypeId");
     const bidTypeId =
       bidTypeIdRaw && String(bidTypeIdRaw) !== "null" ? String(bidTypeIdRaw) : null;
+    const stageTemplateSlotIdRaw = form.get("stageTemplateSlotId");
+    const stageTemplateSlotId =
+      stageTemplateSlotIdRaw && String(stageTemplateSlotIdRaw) !== "null"
+        ? String(stageTemplateSlotIdRaw)
+        : null;
     const file = form.get("file");
 
     if (!name) {
@@ -48,8 +59,24 @@ export async function POST(request: NextRequest) {
       throw new ApiError(400, "VALIDATION_ERROR", "Only .docx Word templates are supported");
     }
 
+    let templateType = type;
+    if (stageTemplateSlotId) {
+      const slot = await prisma.procurementStageTemplateSlot.findUnique({
+        where: { id: stageTemplateSlotId },
+      });
+      if (!slot) throw new ApiError(400, "VALIDATION_ERROR", "Unknown template slot");
+      if (slot.documentType) templateType = slot.documentType;
+      else if (!type) {
+        throw new ApiError(400, "VALIDATION_ERROR", "Document type is required for this template slot");
+      }
+    }
+
     const latest = await prisma.documentTemplate.findFirst({
-      where: { type, bidTypeId },
+      where: {
+        type: templateType,
+        bidTypeId,
+        ...(stageTemplateSlotId ? { stageTemplateSlotId } : {}),
+      },
       orderBy: { version: "desc" },
       select: { version: true },
     });
@@ -59,16 +86,29 @@ export async function POST(request: NextRequest) {
     const filePath = await saveUpload("templates", buffer, file.name);
 
     await prisma.documentTemplate.updateMany({
-      where: { type, bidTypeId, isActive: true },
+      where: {
+        type: templateType,
+        bidTypeId,
+        isActive: true,
+        ...(stageTemplateSlotId ? { stageTemplateSlotId } : {}),
+      },
       data: { isActive: false },
     });
 
     const template = await prisma.documentTemplate.create({
-      data: { name, type, bidTypeId, filePath, version, isActive: true },
-      include: { bidType: true },
+      data: {
+        name,
+        type: templateType,
+        bidTypeId,
+        stageTemplateSlotId,
+        filePath,
+        version,
+        isActive: true,
+      },
+      include: { bidType: true, stageTemplateSlot: true },
     });
 
-    if (bidTypeId && type === "NOTICE") {
+    if (bidTypeId && templateType === "NOTICE") {
       await prisma.bidType.update({ where: { id: bidTypeId }, data: { templatePath: filePath } });
     }
 

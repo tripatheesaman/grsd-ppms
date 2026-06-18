@@ -3,16 +3,34 @@
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 
+import {
+  BidAmountLinesEditor,
+  createBidAmountLineDraft,
+  draftLinesToPayload,
+  payloadToDraftLines,
+  type BidAmountLineDraft,
+} from "@/components/procurement/bid-amount-lines-editor";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Select } from "@/components/ui/input";
 import { getApiErrorMessage } from "@/lib/api/error-message";
-import { calculatePgAmount, formatBidVsCostEstimateLabel, normalizePgFormulaSettings } from "@/lib/formulas/pg-calculator";
+import {
+  calculatePgAmount,
+  formatBidVsCostEstimateLabel,
+  normalizePgFormulaSettings,
+} from "@/lib/formulas/pg-calculator";
 import { formatCurrency } from "@/lib/currency";
 import { useGetLookupsQuery } from "@/store/api/settingsApi";
 import { useSaveCommitteeDecisionMutation } from "@/store/api/procurementsApi";
 import { WorkflowStageFields } from "@/components/procurement/workflow-stage-fields";
 import type { CustomWorkflowField } from "@/lib/procurement/stage-field-catalog";
+
+type BidAmountLine = {
+  currencyId: string | null;
+  amount: number;
+  forexRate: number | null;
+  currencyCode?: string;
+};
 
 type Bidder = {
   id: string;
@@ -28,6 +46,8 @@ type Props = {
     winnerBidderId?: string | null;
     bidCurrencyId?: string | null;
     paymentConditionId?: string | null;
+    bidAmountWithoutVatLines?: BidAmountLine[];
+    bidAmountWithVatLines?: BidAmountLine[];
     bidAmountWithVat?: number | null;
     bidAmountWithoutVat?: number | null;
     warrantyDays?: number | null;
@@ -42,10 +62,28 @@ type Props = {
   };
   onSaved: () => void;
   workflowCustomFields?: CustomWorkflowField[];
+  workflowFieldOrder?: Array<{ fieldRef: string; sortOrder: number }>;
   workflowValues?: Record<string, string>;
   onWorkflowValueChange?: (fieldId: string, value: string) => void;
   onBeforeSave?: () => Promise<void>;
 };
+
+function computeDraftTotal(lines: BidAmountLineDraft[], currencies: Array<{ id: string; code: string }>): number {
+  let total = 0;
+  for (const line of lines) {
+    const amount = Number(line.amount);
+    if (!amount || amount <= 0) continue;
+    const code = currencies.find((c) => c.id === line.currencyId)?.code ?? "";
+    if (code === "NPR") {
+      total += amount;
+      continue;
+    }
+    const forex = Number(line.forexRate);
+    if (!forex || forex <= 0) continue;
+    total += amount * forex;
+  }
+  return Math.round(total * 100) / 100;
+}
 
 export function CommitteeDecisionPanel({
   procurementId,
@@ -56,6 +94,7 @@ export function CommitteeDecisionPanel({
   pgSettings,
   onSaved,
   workflowCustomFields = [],
+  workflowFieldOrder,
   workflowValues = {},
   onWorkflowValueChange,
   onBeforeSave,
@@ -69,8 +108,8 @@ export function CommitteeDecisionPanel({
   const [winnerId, setWinnerId] = useState("");
   const [bidCurrencyId, setBidCurrencyId] = useState("");
   const [paymentConditionId, setPaymentConditionId] = useState("");
-  const [bidWithVat, setBidWithVat] = useState("");
-  const [bidWithoutVat, setBidWithoutVat] = useState("");
+  const [withoutVatLines, setWithoutVatLines] = useState<BidAmountLineDraft[]>([]);
+  const [withVatLines, setWithVatLines] = useState<BidAmountLineDraft[]>([]);
   const [warrantyDays, setWarrantyDays] = useState("0");
   const [categoryDays, setCategoryDays] = useState<Record<string, string>>({});
 
@@ -96,9 +135,13 @@ export function CommitteeDecisionPanel({
       ].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
     [paymentConditions],
   );
-  const selectedCurrencyCode = useMemo(
-    () => sortedCurrencies.find((c) => c.id === bidCurrencyId)?.code ?? null,
-    [sortedCurrencies, bidCurrencyId],
+  const defaultCurrencyId = useMemo(
+    () => sortedCurrencies.find((c) => c.code === "NPR")?.id ?? sortedCurrencies[0]?.id ?? "",
+    [sortedCurrencies],
+  );
+  const bidWithoutVatTotal = useMemo(
+    () => computeDraftTotal(withoutVatLines, sortedCurrencies),
+    [withoutVatLines, sortedCurrencies],
   );
 
   useEffect(() => {
@@ -109,8 +152,7 @@ export function CommitteeDecisionPanel({
 
   useEffect(() => {
     if (!bidCurrencyId && sortedCurrencies.length > 0) {
-      const preferred =
-        sortedCurrencies.find((c) => c.code === "NPR") ?? sortedCurrencies[0];
+      const preferred = sortedCurrencies.find((c) => c.code === "NPR") ?? sortedCurrencies[0];
       if (preferred) setBidCurrencyId(preferred.id);
     }
   }, [sortedCurrencies, bidCurrencyId]);
@@ -122,12 +164,46 @@ export function CommitteeDecisionPanel({
   }, [sortedPaymentConditions, paymentConditionId]);
 
   useEffect(() => {
-    if (!initialDecision) return;
+    if (!defaultCurrencyId) return;
+    if (withoutVatLines.length === 0) {
+      setWithoutVatLines([createBidAmountLineDraft(defaultCurrencyId)]);
+    }
+    if (withVatLines.length === 0) {
+      setWithVatLines([createBidAmountLineDraft(defaultCurrencyId)]);
+    }
+  }, [defaultCurrencyId, withoutVatLines.length, withVatLines.length]);
+
+  useEffect(() => {
+    if (!initialDecision || !defaultCurrencyId) return;
     if (initialDecision.winnerBidderId) setWinnerId(initialDecision.winnerBidderId);
     if (initialDecision.bidCurrencyId) setBidCurrencyId(initialDecision.bidCurrencyId);
     if (initialDecision.paymentConditionId) setPaymentConditionId(initialDecision.paymentConditionId);
-    if (initialDecision.bidAmountWithVat != null) setBidWithVat(String(initialDecision.bidAmountWithVat));
-    if (initialDecision.bidAmountWithoutVat != null) setBidWithoutVat(String(initialDecision.bidAmountWithoutVat));
+    if (initialDecision.bidAmountWithoutVatLines?.length) {
+      setWithoutVatLines(
+        payloadToDraftLines(initialDecision.bidAmountWithoutVatLines, defaultCurrencyId),
+      );
+    } else if (initialDecision.bidAmountWithoutVat != null) {
+      setWithoutVatLines([
+        {
+          key: crypto.randomUUID(),
+          currencyId: defaultCurrencyId,
+          amount: String(initialDecision.bidAmountWithoutVat),
+          forexRate: "",
+        },
+      ]);
+    }
+    if (initialDecision.bidAmountWithVatLines?.length) {
+      setWithVatLines(payloadToDraftLines(initialDecision.bidAmountWithVatLines, defaultCurrencyId));
+    } else if (initialDecision.bidAmountWithVat != null) {
+      setWithVatLines([
+        {
+          key: crypto.randomUUID(),
+          currencyId: defaultCurrencyId,
+          amount: String(initialDecision.bidAmountWithVat),
+          forexRate: "",
+        },
+      ]);
+    }
     if (initialDecision.warrantyDays != null) setWarrantyDays(String(initialDecision.warrantyDays));
     if (initialDecision.workDays?.length) {
       setCategoryDays(
@@ -136,20 +212,21 @@ export function CommitteeDecisionPanel({
         ),
       );
     }
-  }, [initialDecision]);
+  }, [initialDecision, defaultCurrencyId]);
 
   const pgPreview = useMemo(() => {
-    const bid = Number(bidWithoutVat);
-    if (!bid || bid <= 0 || !Number.isFinite(costEstimate) || costEstimate <= 0) return null;
+    if (!bidWithoutVatTotal || bidWithoutVatTotal <= 0 || !Number.isFinite(costEstimate) || costEstimate <= 0) {
+      return null;
+    }
     try {
       return calculatePgAmount(
-        { costEstimateWithoutVat: costEstimate, bidAmountWithoutVat: bid },
+        { costEstimateWithoutVat: costEstimate, bidAmountWithoutVat: bidWithoutVatTotal },
         normalizePgFormulaSettings(pgSettings),
       );
     } catch {
       return null;
     }
-  }, [bidWithoutVat, costEstimate, pgSettings]);
+  }, [bidWithoutVatTotal, costEstimate, pgSettings]);
 
   async function submit() {
     if (!winnerId) {
@@ -164,6 +241,15 @@ export function CommitteeDecisionPanel({
       toast.error("Select payment condition");
       return;
     }
+
+    const bidAmountWithoutVatLines = draftLinesToPayload(withoutVatLines, sortedCurrencies);
+    if (bidAmountWithoutVatLines.length === 0) {
+      toast.error("Enter at least one bid amount without VAT");
+      return;
+    }
+
+    const bidAmountWithVatLines = draftLinesToPayload(withVatLines, sortedCurrencies);
+
     const workDays = sortedCategories.map((c) => ({
       workDayCategoryId: c.id,
       days: Number(categoryDays[c.id] ?? 0),
@@ -175,8 +261,8 @@ export function CommitteeDecisionPanel({
         winnerBidderId: winnerId,
         bidCurrencyId,
         paymentConditionId,
-        bidAmountWithVat: Number(bidWithVat),
-        bidAmountWithoutVat: Number(bidWithoutVat),
+        bidAmountWithoutVatLines,
+        bidAmountWithVatLines,
         warrantyDays: Number(warrantyDays),
         workDays,
       }).unwrap();
@@ -204,14 +290,16 @@ export function CommitteeDecisionPanel({
         <div>
           <CardTitle>Evaluation committee decision</CardTitle>
           <CardDescription>
-            Select the winning bidder, enter bid amounts, work day categories, and warranty days.
-            PG amount is calculated automatically.
+            Select the winning bidder, enter bid amounts in one or more currencies (converted to NPR
+            for totals), work day categories, and warranty days. PG amount is calculated from the
+            ex-VAT NPR total.
           </CardDescription>
         </div>
       </CardHeader>
       <WorkflowStageFields
         stageKey="committee_decision"
         customFields={workflowCustomFields}
+        fieldOrder={workflowFieldOrder}
         values={workflowValues}
         onValueChange={onWorkflowValueChange ?? (() => undefined)}
         className="mt-4 grid gap-4 md:grid-cols-2"
@@ -268,23 +356,22 @@ export function CommitteeDecisionPanel({
             </Select>
           ),
           bidAmountWithoutVat: (
-            <Input
-              label="Bid amount without VAT"
-              type="number"
-              step="0.01"
-              min="0.01"
-              value={bidWithoutVat}
-              onChange={(e) => setBidWithoutVat(e.target.value)}
+            <BidAmountLinesEditor
+              label="Bid amounts without VAT"
+              lines={withoutVatLines}
+              currencies={sortedCurrencies}
+              defaultCurrencyId={defaultCurrencyId}
+              onChange={setWithoutVatLines}
             />
           ),
           bidAmountWithVat: (
-            <Input
-              label="Bid amount with VAT"
-              type="number"
-              step="0.01"
-              min="0.01"
-              value={bidWithVat}
-              onChange={(e) => setBidWithVat(e.target.value)}
+            <BidAmountLinesEditor
+              label="Bid amounts with VAT"
+              optional
+              lines={withVatLines}
+              currencies={sortedCurrencies}
+              defaultCurrencyId={defaultCurrencyId}
+              onChange={setWithVatLines}
             />
           ),
           workDays: (
@@ -313,17 +400,17 @@ export function CommitteeDecisionPanel({
             : "5% of bid + front loading"}
           ):{" "}
           <strong className="text-[var(--color-text)]">
-            {formatCurrency(pgPreview.pgAmount, { currencyCode: selectedCurrencyCode })}
+            {formatCurrency(pgPreview.pgAmount)}
           </strong>
           {pgPreview.method === "front_loading" ? (
             <span className="text-[var(--color-text-soft)]">
               {" "}
-              ({formatCurrency(pgPreview.basePgAmount, { currencyCode: selectedCurrencyCode })} +{" "}
-              {formatCurrency(pgPreview.frontLoadingAmount, { currencyCode: selectedCurrencyCode })})
+              ({formatCurrency(pgPreview.basePgAmount)} +{" "}
+              {formatCurrency(pgPreview.frontLoadingAmount)})
             </span>
           ) : null}
           {" "}
-          ({formatBidVsCostEstimateLabel(costEstimate, Number(bidWithoutVat))})
+          ({formatBidVsCostEstimateLabel(costEstimate, bidWithoutVatTotal)})
         </p>
       ) : null}
       <Button className="mt-4" disabled={isLoading} onClick={submit}>

@@ -327,6 +327,39 @@ model ProcurementWorkflowField {
   @@map("procurementworkflowfield")
 }
 
+model ProcurementWorkflowFieldOrder {
+  id        String   @id @default(cuid())
+  stageKey  String
+  fieldRef  String
+  sortOrder Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([stageKey, fieldRef])
+  @@index([stageKey, sortOrder])
+  @@map("procurementworkflowfieldorder")
+}
+
+model ProcurementStageTemplateSlot {
+  id            String                @id @default(cuid())
+  stageKey      String
+  slotKey       String
+  label         String
+  description   String?
+  documentType  DocumentTemplateType?
+  bidTypeScoped Boolean               @default(false)
+  sortOrder     Int                   @default(0)
+  isBuiltin     Boolean               @default(false)
+  isActive      Boolean               @default(true)
+  templates     DocumentTemplate[]
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  @@unique([stageKey, slotKey])
+  @@index([stageKey, isActive])
+  @@map("procurementstagetemplateslot")
+}
+
 model ProcurementWorkflowFieldValue {
   id            String                   @id @default(cuid())
   procurementId String
@@ -477,12 +510,31 @@ model Bidder {
   procurement   Procurement        @relation(fields: [procurementId], references: [id], onDelete: Cascade)
   bidCurrency   Currency?          @relation(fields: [bidCurrencyId], references: [id], onDelete: SetNull)
   paymentCondition PaymentCondition? @relation(fields: [paymentConditionId], references: [id], onDelete: SetNull)
+  bidAmountLines BidderBidAmountLine[]
   fieldValues   BidderFieldValue[]
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
 
   @@index([procurementId])
   @@map("bidder")
+}
+
+model BidderBidAmountLine {
+  id           String   @id @default(cuid())
+  bidderId     String
+  amountKind   String
+  currencyId   String?
+  currencyCode String
+  currencyName String?
+  amount       Decimal  @db.Decimal(18, 4)
+  forexRate    Decimal? @db.Decimal(18, 6)
+  nprAmount    Decimal  @db.Decimal(18, 2)
+  sortOrder    Int      @default(0)
+  bidder       Bidder   @relation(fields: [bidderId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+
+  @@index([bidderId])
+  @@map("bidderbidamountline")
 }
 
 model BidderFieldValue {
@@ -531,18 +583,20 @@ model ProcurementEvent {
 }
 
 model DocumentTemplate {
-  id           String               @id @default(cuid())
-  name         String
-  type         DocumentTemplateType
-  bidTypeId    String?
-  filePath     String
-  version      Int                  @default(1)
-  isActive     Boolean              @default(true)
-  bidType      BidType?             @relation(fields: [bidTypeId], references: [id])
-  placeholders TemplatePlaceholder[]
-  generated    GeneratedDocument[]
-  createdAt    DateTime             @default(now())
-  updatedAt    DateTime             @updatedAt
+  id                  String                        @id @default(cuid())
+  name                String
+  type                DocumentTemplateType
+  bidTypeId           String?
+  stageTemplateSlotId String?
+  filePath            String
+  version             Int                           @default(1)
+  isActive            Boolean                       @default(true)
+  bidType             BidType?                      @relation(fields: [bidTypeId], references: [id])
+  stageTemplateSlot   ProcurementStageTemplateSlot? @relation(fields: [stageTemplateSlotId], references: [id])
+  placeholders        TemplatePlaceholder[]
+  generated           GeneratedDocument[]
+  createdAt           DateTime                      @default(now())
+  updatedAt           DateTime                      @updatedAt
 
   @@map("documenttemplate")
 }

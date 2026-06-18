@@ -91,8 +91,8 @@ export const WORKFLOW_STAGE_DEFINITIONS: WorkflowStageDefinition[] = [
       { fieldKey: "winnerBidderId", label: "Winner bidder", fieldType: "select" },
       { fieldKey: "bidCurrencyId", label: "Bid currency", fieldType: "select" },
       { fieldKey: "paymentConditionId", label: "Payment condition", fieldType: "select" },
-      { fieldKey: "bidAmountWithVat", label: "Bid amount (with VAT)", fieldType: "number" },
-      { fieldKey: "bidAmountWithoutVat", label: "Bid amount (without VAT)", fieldType: "number" },
+      { fieldKey: "bidAmountWithVat", label: "Bid amounts (with VAT, optional)", fieldType: "group" },
+      { fieldKey: "bidAmountWithoutVat", label: "Bid amounts (without VAT)", fieldType: "group" },
       { fieldKey: "warrantyDays", label: "Warranty days", fieldType: "number" },
       { fieldKey: "workDays", label: "Work days by category", fieldType: "group" },
     ],
@@ -199,17 +199,42 @@ export type LayoutFieldItem =
       hint: string | null;
     };
 
+export type WorkflowFieldOrderEntry = {
+  fieldRef: string;
+  sortOrder: number;
+};
+
+export function builtinFieldRef(fieldKey: string): string {
+  return `builtin:${fieldKey}`;
+}
+
+export function customFieldRef(fieldId: string): string {
+  return `custom:${fieldId}`;
+}
+
+export function layoutItemFieldRef(item: LayoutFieldItem): string {
+  return item.kind === "builtin" ? builtinFieldRef(item.fieldKey) : customFieldRef(item.id);
+}
+
 export function buildWorkflowFieldLayout(
   stageKey: string,
   customFields: CustomWorkflowField[],
-  options?: { visibleBuiltinKeys?: string[] },
+  options?: { visibleBuiltinKeys?: string[]; fieldOrder?: WorkflowFieldOrderEntry[] },
+): LayoutFieldItem[] {
+  const defaultLayout = buildDefaultWorkflowFieldLayout(stageKey, customFields, options?.visibleBuiltinKeys);
+  if (!options?.fieldOrder?.length) return defaultLayout;
+  return applyWorkflowFieldOrder(defaultLayout, options.fieldOrder);
+}
+
+function buildDefaultWorkflowFieldLayout(
+  stageKey: string,
+  customFields: CustomWorkflowField[],
+  visibleBuiltinKeys?: string[],
 ): LayoutFieldItem[] {
   const stage = getWorkflowStageDefinition(stageKey);
   if (!stage) return [];
 
-  const visibleBuiltinKeys = options?.visibleBuiltinKeys
-    ? new Set(options.visibleBuiltinKeys)
-    : null;
+  const visibleKeys = visibleBuiltinKeys ? new Set(visibleBuiltinKeys) : null;
 
   const activeCustom = customFields
     .filter((f) => f.stageKey === stageKey && f.isActive)
@@ -218,7 +243,7 @@ export function buildWorkflowFieldLayout(
   const result: LayoutFieldItem[] = [];
 
   for (const builtin of stage.fields) {
-    if (visibleBuiltinKeys && !visibleBuiltinKeys.has(builtin.fieldKey)) continue;
+    if (visibleKeys && !visibleKeys.has(builtin.fieldKey)) continue;
     const before = activeCustom.filter(
       (c) => c.anchorFieldKey === builtin.fieldKey && c.position === "BEFORE",
     );
@@ -241,7 +266,6 @@ export function buildWorkflowFieldLayout(
     }
   }
 
-  const anchoredKeys = new Set(activeCustom.map((c) => c.id));
   const orphanCustom = activeCustom.filter((c) => {
     const anchorExists = stage.fields.some((f) => f.fieldKey === c.anchorFieldKey);
     return !anchorExists;
@@ -252,10 +276,31 @@ export function buildWorkflowFieldLayout(
     }
   }
 
-  // Suppress unused variable warning - anchoredKeys used implicitly
-  void anchoredKeys;
-
   return result;
+}
+
+export function applyWorkflowFieldOrder(
+  defaultLayout: LayoutFieldItem[],
+  fieldOrder: WorkflowFieldOrderEntry[],
+): LayoutFieldItem[] {
+  const byRef = new Map(defaultLayout.map((item) => [layoutItemFieldRef(item), item]));
+  const sorted = [...fieldOrder].sort((a, b) => a.sortOrder - b.sortOrder || a.fieldRef.localeCompare(b.fieldRef));
+  const ordered: LayoutFieldItem[] = [];
+  const used = new Set<string>();
+
+  for (const entry of sorted) {
+    const item = byRef.get(entry.fieldRef);
+    if (!item || used.has(entry.fieldRef)) continue;
+    ordered.push(item);
+    used.add(entry.fieldRef);
+  }
+
+  for (const item of defaultLayout) {
+    const ref = layoutItemFieldRef(item);
+    if (!used.has(ref)) ordered.push(item);
+  }
+
+  return ordered;
 }
 
 function customToLayoutItem(c: CustomWorkflowField): LayoutFieldItem {

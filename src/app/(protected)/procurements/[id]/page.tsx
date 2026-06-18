@@ -8,6 +8,7 @@ import { CommitteeDecisionPanel } from "@/components/procurement/committee-decis
 import { ProcurementCrudActions } from "@/components/procurement/procurement-crud-actions";
 import { ProcurementFullDetails } from "@/components/procurement/procurement-full-details";
 import { ProcurementTimeline } from "@/components/procurement/procurement-timeline";
+import { WorkflowDateValidationToggle } from "@/components/procurement/workflow-date-validation-toggle";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,6 +26,7 @@ import { suggestPriceBidOpenDate } from "@/lib/procurement/suggest-price-bid-dat
 import { parseProcurementSettingsSnapshot } from "@/lib/procurement/settings-snapshot";
 import { WorkflowStageFields } from "@/components/procurement/workflow-stage-fields";
 import { useWorkflowCustomFieldsAll } from "@/lib/procurement/use-workflow-custom-fields";
+import { useWorkflowValidationGuards } from "@/lib/procurement/use-workflow-validation-guards";
 import { STATUS_LABELS } from "@/lib/procurement/workflow";
 import {
   useCorrectProcurementStatusMutation,
@@ -105,6 +107,13 @@ export default function ProcurementDetailPage() {
 
   const proc = data as Record<string, unknown> | undefined;
   const status = proc?.status as ProcurementStatus | undefined;
+  const workflowDateValidationEnabled = proc?.workflowDateValidationEnabled !== false;
+  const {
+    guardTransition,
+    guardBidderEntry,
+    guardBidderFinalize,
+    guardCommitteeDecision,
+  } = useWorkflowValidationGuards(proc, status, workflowDateValidationEnabled);
   const bidders = (proc?.bidders as Array<Record<string, unknown>>) ?? [];
   const canGenerateLoiAnytime = [
     "LOI_ISSUED",
@@ -260,6 +269,11 @@ export default function ProcurementDetailPage() {
   }, [status, bidders]);
 
   async function doTransition(toStatus: string, payload?: Record<string, unknown>) {
+    const blocked = guardTransition(toStatus as ProcurementStatus, payload);
+    if (blocked) {
+      toast.error(blocked);
+      return;
+    }
     try {
       await transition({ id, status: toStatus, payload }).unwrap();
       toast.success("Status updated");
@@ -529,6 +543,12 @@ export default function ProcurementDetailPage() {
   }
 
   async function addBidder(finalize = false) {
+    const blocked = finalize ? guardBidderFinalize() : guardBidderEntry();
+    if (blocked) {
+      toast.error(blocked);
+      return;
+    }
+
     const newBidder =
       bidderName.trim() && bidderAddress.trim()
         ? {
@@ -763,7 +783,11 @@ export default function ProcurementDetailPage() {
           </span>
         ) : null}
         {canTransition && status === "DRAFT" && (
-          <Button onClick={() => doTransition("ACTIVE")} disabled={transitioning}>
+          <Button
+            onClick={() => doTransition("ACTIVE")}
+            disabled={transitioning || Boolean(guardTransition("ACTIVE"))}
+            title={guardTransition("ACTIVE") ?? undefined}
+          >
             Begin procurement period
           </Button>
         )}
@@ -775,7 +799,12 @@ export default function ProcurementDetailPage() {
           </>
         )}
         {canTransition && status === "BID_OPEN_DAY" && (
-          <Button variant="secondary" onClick={() => doTransition("BID_CLOSED")} disabled={transitioning}>
+          <Button
+            variant="secondary"
+            onClick={() => doTransition("BID_CLOSED")}
+            disabled={transitioning || Boolean(guardTransition("BID_CLOSED"))}
+            title={guardTransition("BID_CLOSED") ?? undefined}
+          >
             Close bid (ready for bidders)
           </Button>
         )}
@@ -856,6 +885,8 @@ export default function ProcurementDetailPage() {
       </Card>
 
       {isSuperadmin && status && (
+        <>
+          <WorkflowDateValidationToggle onChanged={() => refetch()} />
         <Card className="mb-6 border-orange-300/70">
           <CardTitle>Superadmin status correction</CardTitle>
           <CardDescription>
@@ -886,6 +917,7 @@ export default function ProcurementDetailPage() {
             </Button>
           </div>
         </Card>
+        </>
       )}
 
       {confirmCorrectionAction && (
@@ -940,10 +972,16 @@ export default function ProcurementDetailPage() {
           <p className="mt-1 text-sm text-[var(--color-text-soft)]">
             Select the date the pre-bid was held (defaults to scheduled pre-bid date).
           </p>
+          {guardTransition("PREBID_OPEN", { prebidAcknowledgedAt: prebidAckDate }) ? (
+            <p className="mt-2 text-sm text-[var(--color-danger)]">
+              {guardTransition("PREBID_OPEN", { prebidAcknowledgedAt: prebidAckDate })}
+            </p>
+          ) : null}
           <div className="mt-4 flex flex-wrap items-end gap-4">
             <WorkflowStageFields
               stageKey="ACTIVE"
               customFields={wf.getFieldsForStage("ACTIVE")}
+              fieldOrder={wf.getFieldOrderForStage("ACTIVE")}
               values={wf.values}
               onValueChange={wf.setValue}
               builtinRenderers={{
@@ -958,7 +996,11 @@ export default function ProcurementDetailPage() {
               }}
             />
             <Button
-              disabled={transitioning || !prebidAckDate}
+              disabled={
+                transitioning ||
+                !prebidAckDate ||
+                Boolean(guardTransition("PREBID_OPEN", { prebidAcknowledgedAt: prebidAckDate }))
+              }
               onClick={() =>
                 runStageAction("ACTIVE", () =>
                   doTransition("PREBID_OPEN", { prebidAcknowledgedAt: prebidAckDate }),
@@ -978,10 +1020,16 @@ export default function ProcurementDetailPage() {
             Suggested opening date: today plus {priceBidDays} working day
             {priceBidDays === 1 ? "" : "s"} for this bid type. Adjust if needed, then open.
           </p>
+          {guardTransition("PRICE_BID_OPEN", { priceBidOpenDate }) ? (
+            <p className="mt-2 text-sm text-[var(--color-danger)]">
+              {guardTransition("PRICE_BID_OPEN", { priceBidOpenDate })}
+            </p>
+          ) : null}
           <div className="mt-4 flex flex-wrap items-end gap-4">
             <WorkflowStageFields
               stageKey="LETTERS_SENT"
               customFields={wf.getFieldsForStage("LETTERS_SENT")}
+              fieldOrder={wf.getFieldOrderForStage("LETTERS_SENT")}
               values={wf.values}
               onValueChange={wf.setValue}
               builtinRenderers={{
@@ -999,7 +1047,11 @@ export default function ProcurementDetailPage() {
               }}
             />
             <Button
-              disabled={transitioning || !priceBidOpenDate}
+              disabled={
+                transitioning ||
+                !priceBidOpenDate ||
+                Boolean(guardTransition("PRICE_BID_OPEN", { priceBidOpenDate }))
+              }
               onClick={() => runStageAction("LETTERS_SENT", openPriceBid)}
             >
               Open price bid
@@ -1018,9 +1070,16 @@ export default function ProcurementDetailPage() {
             passedTech: b.passedTech as boolean | null | undefined,
           }))}
           workflowCustomFields={wf.getFieldsForStage("committee_decision")}
+          workflowFieldOrder={wf.getFieldOrderForStage("committee_decision")}
           workflowValues={wf.values}
           onWorkflowValueChange={wf.setValue}
-          onBeforeSave={() => wf.persistStage("committee_decision")}
+          onBeforeSave={async () => {
+            const blocked = guardCommitteeDecision();
+            if (blocked) {
+              throw new Error(blocked);
+            }
+            await wf.persistStage("committee_decision");
+          }}
           pgSettings={{
             pgDiscountThresholdPercent: pgSettings.pgDiscountThresholdPercent,
             pgLowDiscountRatePercent: pgSettings.pgLowDiscountRatePercent,
@@ -1041,15 +1100,50 @@ export default function ProcurementDetailPage() {
             passedTech: b.passedTech as boolean | null | undefined,
           }))}
           workflowCustomFields={wf.getFieldsForStage("committee_decision")}
+          workflowFieldOrder={wf.getFieldOrderForStage("committee_decision")}
           workflowValues={wf.values}
           onWorkflowValueChange={wf.setValue}
-          onBeforeSave={() => wf.persistStage("committee_decision")}
+          onBeforeSave={async () => {
+            const blocked = guardCommitteeDecision();
+            if (blocked) {
+              throw new Error(blocked);
+            }
+            await wf.persistStage("committee_decision");
+          }}
           initialDecision={{
             winnerBidderId: (proc.winnerBidder as { id?: string } | null)?.id ?? null,
             bidCurrencyId: (proc.winnerBidder as { bidCurrencyId?: string } | null)?.bidCurrencyId ?? null,
             paymentConditionId:
               (proc.winnerBidder as { paymentConditionId?: string } | null)?.paymentConditionId ??
               null,
+            bidAmountWithoutVatLines: (
+              (proc.winnerBidder as { bidAmountLines?: Array<{
+                amountKind: string;
+                currencyId: string | null;
+                amount: number;
+                forexRate: number | null;
+              }> } | null)?.bidAmountLines ?? []
+            )
+              .filter((line) => line.amountKind === "WITHOUT_VAT")
+              .map((line) => ({
+                currencyId: line.currencyId,
+                amount: line.amount,
+                forexRate: line.forexRate,
+              })),
+            bidAmountWithVatLines: (
+              (proc.winnerBidder as { bidAmountLines?: Array<{
+                amountKind: string;
+                currencyId: string | null;
+                amount: number;
+                forexRate: number | null;
+              }> } | null)?.bidAmountLines ?? []
+            )
+              .filter((line) => line.amountKind === "WITH_VAT")
+              .map((line) => ({
+                currencyId: line.currencyId,
+                amount: line.amount,
+                forexRate: line.forexRate,
+              })),
             bidAmountWithVat:
               (proc.winnerBidder as { bidAmountWithVat?: number } | null)?.bidAmountWithVat ?? null,
             bidAmountWithoutVat:
@@ -1102,6 +1196,7 @@ export default function ProcurementDetailPage() {
             <WorkflowStageFields
               stageKey="LOI_ISSUED"
               customFields={wf.getFieldsForStage("LOI_ISSUED")}
+              fieldOrder={wf.getFieldOrderForStage("LOI_ISSUED")}
               values={wf.values}
               onValueChange={wf.setValue}
               builtinRenderers={{
@@ -1139,6 +1234,7 @@ export default function ProcurementDetailPage() {
             <WorkflowStageFields
               stageKey="LOA_ISSUED"
               customFields={wf.getFieldsForStage("LOA_ISSUED")}
+              fieldOrder={wf.getFieldOrderForStage("LOA_ISSUED")}
               values={wf.values}
               onValueChange={wf.setValue}
               builtinRenderers={{
@@ -1237,6 +1333,7 @@ export default function ProcurementDetailPage() {
             <WorkflowStageFields
               stageKey="CONTRACT_SIGNED"
               customFields={wf.getFieldsForStage("CONTRACT_SIGNED")}
+              fieldOrder={wf.getFieldOrderForStage("CONTRACT_SIGNED")}
               values={wf.values}
               onValueChange={wf.setValue}
               builtinRenderers={{
@@ -1270,6 +1367,7 @@ export default function ProcurementDetailPage() {
             <WorkflowStageFields
               stageKey="IN_PROGRESS_PDI"
               customFields={wf.getFieldsForStage("IN_PROGRESS_PDI")}
+              fieldOrder={wf.getFieldOrderForStage("IN_PROGRESS_PDI")}
               values={wf.values}
               onValueChange={wf.setValue}
               builtinRenderers={{
@@ -1353,6 +1451,7 @@ export default function ProcurementDetailPage() {
             <WorkflowStageFields
               stageKey="IN_PROGRESS_COMPLETE"
               customFields={wf.getFieldsForStage("IN_PROGRESS_COMPLETE")}
+              fieldOrder={wf.getFieldOrderForStage("IN_PROGRESS_COMPLETE")}
               values={wf.values}
               onValueChange={wf.setValue}
               builtinRenderers={{
@@ -1383,6 +1482,7 @@ export default function ProcurementDetailPage() {
             <WorkflowStageFields
               stageKey="PDI_PHASE"
               customFields={wf.getFieldsForStage("PDI_PHASE")}
+              fieldOrder={wf.getFieldOrderForStage("PDI_PHASE")}
               values={wf.values}
               onValueChange={wf.setValue}
               builtinRenderers={{
@@ -1409,10 +1509,16 @@ export default function ProcurementDetailPage() {
           <p className="mt-1 text-sm text-[var(--color-text-soft)]">
             Select the date bids were opened (defaults to scheduled bid open date).
           </p>
+          {guardTransition("BID_OPEN_DAY", { bidOpenAcknowledgedAt: bidOpenAckDate }) ? (
+            <p className="mt-2 text-sm text-[var(--color-danger)]">
+              {guardTransition("BID_OPEN_DAY", { bidOpenAcknowledgedAt: bidOpenAckDate })}
+            </p>
+          ) : null}
           <div className="mt-4 flex flex-wrap items-end gap-4">
             <WorkflowStageFields
               stageKey="PREBID_OPEN"
               customFields={wf.getFieldsForStage("PREBID_OPEN")}
+              fieldOrder={wf.getFieldOrderForStage("PREBID_OPEN")}
               values={wf.values}
               onValueChange={wf.setValue}
               builtinRenderers={{
@@ -1427,7 +1533,11 @@ export default function ProcurementDetailPage() {
               }}
             />
             <Button
-              disabled={transitioning || !bidOpenAckDate}
+              disabled={
+                transitioning ||
+                !bidOpenAckDate ||
+                Boolean(guardTransition("BID_OPEN_DAY", { bidOpenAcknowledgedAt: bidOpenAckDate }))
+              }
               onClick={() =>
                 runStageAction("PREBID_OPEN", () =>
                   doTransition("BID_OPEN_DAY", { bidOpenAcknowledgedAt: bidOpenAckDate }),
@@ -1501,6 +1611,7 @@ export default function ProcurementDetailPage() {
           <WorkflowStageFields
             stageKey="bidder_entry"
             customFields={wf.getFieldsForStage("bidder_entry")}
+            fieldOrder={wf.getFieldOrderForStage("bidder_entry")}
             values={wf.values}
             onValueChange={wf.setValue}
             className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-4"
@@ -1528,11 +1639,16 @@ export default function ProcurementDetailPage() {
             }}
           />
           <div className="mt-4 flex flex-wrap gap-2">
-            <Button variant="secondary" onClick={() => addBidder(false)}>
+            <Button variant="secondary" onClick={() => addBidder(false)} disabled={Boolean(guardBidderEntry())}>
               Add bidder
             </Button>
             {(status === "BID_CLOSED" || status === "BID_OPEN_DAY") && (
-              <Button onClick={() => addBidder(true)} disabled={bidders.length === 0 && !bidderName}>
+              <Button
+                onClick={() => addBidder(true)}
+                disabled={
+                  (bidders.length === 0 && !bidderName) || Boolean(guardBidderFinalize())
+                }
+              >
                 Finish bidder entry
               </Button>
             )}

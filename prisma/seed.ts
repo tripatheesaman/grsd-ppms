@@ -55,6 +55,7 @@ const defaultSettings: Array<{ key: string; value: unknown }> = [
     ],
   },
   { key: "letterDefaultCcLines", value: [] },
+  { key: "workflowDateValidationEnabled", value: true },
 ];
 
 async function main() {
@@ -245,6 +246,88 @@ async function main() {
       where: { key: field.key },
       update: field,
       create: field,
+    });
+  }
+
+  const stageTemplateSlots = [
+    {
+      id: "slot_notice",
+      stageKey: "procurement_create",
+      slotKey: "notice",
+      label: "Notice",
+      description: "Published procurement notice document",
+      documentType: "NOTICE" as const,
+      bidTypeScoped: true,
+      sortOrder: 0,
+    },
+    {
+      id: "slot_loi_pass",
+      stageKey: "LETTERS_SENT",
+      slotKey: "loi_pass",
+      label: "LOI (technical pass)",
+      description: "Letter of intent for bidders who passed technical evaluation",
+      documentType: "LOI_PASS" as const,
+      bidTypeScoped: true,
+      sortOrder: 0,
+    },
+    {
+      id: "slot_loi_fail",
+      stageKey: "LETTERS_SENT",
+      slotKey: "loi_fail",
+      label: "Rejection letter",
+      description: "Rejection letter for bidders who failed technical evaluation",
+      documentType: "LOI_FAIL" as const,
+      bidTypeScoped: true,
+      sortOrder: 1,
+    },
+    {
+      id: "slot_loi_winner",
+      stageKey: "committee_decision",
+      slotKey: "loi_winner",
+      label: "Winner LOI",
+      description: "Letter of intent for the winning bidder",
+      documentType: "LOI_WINNER" as const,
+      bidTypeScoped: false,
+      sortOrder: 0,
+    },
+    {
+      id: "slot_loa",
+      stageKey: "LOI_ISSUED",
+      slotKey: "loa",
+      label: "Letter of acceptance (LOA)",
+      description: "LOA document after LOI is issued",
+      documentType: "LOA" as const,
+      bidTypeScoped: false,
+      sortOrder: 0,
+    },
+    {
+      id: "slot_contract",
+      stageKey: "LOA_ISSUED",
+      slotKey: "contract",
+      label: "Contract agreement",
+      description: "Contract document after LOA is issued",
+      documentType: "CONTRACT" as const,
+      bidTypeScoped: false,
+      sortOrder: 0,
+    },
+  ];
+  for (const slot of stageTemplateSlots) {
+    await prisma.procurementStageTemplateSlot.upsert({
+      where: { stageKey_slotKey: { stageKey: slot.stageKey, slotKey: slot.slotKey } },
+      update: {
+        label: slot.label,
+        description: slot.description,
+        documentType: slot.documentType,
+        bidTypeScoped: slot.bidTypeScoped,
+        sortOrder: slot.sortOrder,
+        isBuiltin: true,
+        isActive: true,
+      },
+      create: {
+        ...slot,
+        isBuiltin: true,
+        isActive: true,
+      },
     });
   }
 

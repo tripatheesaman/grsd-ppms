@@ -5,6 +5,16 @@ import { writeAudit } from "@/lib/audit";
 import { AuditAction } from "@prisma/client";
 
 import { calculatePgAmount, normalizePgFormulaSettings } from "@/lib/formulas/pg-calculator";
+import {
+  assertWorkflowDateRules,
+  validateCommitteeDecision,
+} from "@/lib/procurement/workflow-date-validation";
+import {
+  BID_AMOUNT_KIND_WITHOUT_VAT,
+  BID_AMOUNT_KIND_WITH_VAT,
+  resolveBidAmountLines,
+  type BidAmountLineInput,
+} from "@/lib/procurement/bid-amount-lines";
 import { loadProcurementSettings } from "@/lib/procurement/settings-snapshot";
 import { loadWorkDayCategoryLabels } from "@/lib/procurement/snapshot-resolve";
 import { prisma } from "@/lib/prisma";
@@ -13,8 +23,8 @@ export type CommitteeDecisionInput = {
   winnerBidderId: string;
   bidCurrencyId: string;
   paymentConditionId: string;
-  bidAmountWithVat: number;
-  bidAmountWithoutVat: number;
+  bidAmountWithoutVatLines: BidAmountLineInput[];
+  bidAmountWithVatLines?: BidAmountLineInput[];
   warrantyDays: number;
   workDays: Array<{ workDayCategoryId: string; days: number }>;
 };
@@ -42,13 +52,15 @@ export async function saveCommitteeDecision(
     throw new ApiError(400, "VALIDATION_ERROR", "Winner must be a technically passed bidder");
   }
 
-  if (input.bidAmountWithoutVat <= 0 || input.bidAmountWithVat <= 0) {
-    throw new ApiError(400, "VALIDATION_ERROR", "Bid amounts must be greater than zero");
+  if (input.bidAmountWithoutVatLines.length === 0) {
+    throw new ApiError(400, "VALIDATION_ERROR", "Enter at least one bid amount without VAT");
   }
 
   if (input.warrantyDays < 0) {
     throw new ApiError(400, "VALIDATION_ERROR", "Warranty days cannot be negative");
   }
+
+  await assertWorkflowDateRules(proc, validateCommitteeDecision(proc));
 
   const workDays = input.workDays.filter((w) => w.days > 0);
   if (workDays.length === 0) {
@@ -66,11 +78,28 @@ export async function saveCommitteeDecision(
   if (!paymentCondition || !paymentCondition.isActive) {
     throw new ApiError(400, "VALIDATION_ERROR", "Select a valid payment condition");
   }
+
+  const activeCurrencies = await prisma.currency.findMany({
+    where: { isActive: true },
+    select: { id: true, code: true, name: true, isActive: true },
+  });
+
+  const withoutVat = resolveBidAmountLines(
+    input.bidAmountWithoutVatLines,
+    activeCurrencies,
+    BID_AMOUNT_KIND_WITHOUT_VAT,
+  );
+  const withVat = resolveBidAmountLines(
+    input.bidAmountWithVatLines ?? [],
+    activeCurrencies,
+    BID_AMOUNT_KIND_WITH_VAT,
+  );
+
   const costWithoutVat = Number(proc.costEstimate);
   const pg = calculatePgAmount(
     {
       costEstimateWithoutVat: costWithoutVat,
-      bidAmountWithoutVat: input.bidAmountWithoutVat,
+      bidAmountWithoutVat: withoutVat.totalNpr,
     },
     normalizePgFormulaSettings({
       pgDiscountThresholdPercent: settings.pgDiscountThresholdPercent,
@@ -84,6 +113,9 @@ export async function saveCommitteeDecision(
   const categoryLabels = await loadWorkDayCategoryLabels(workDays.map((w) => w.workDayCategoryId));
 
   await prisma.$transaction(async (tx) => {
+    await tx.bidderBidAmountLine.deleteMany({
+      where: { bidder: { procurementId } },
+    });
     await tx.bidder.updateMany({
       where: { procurementId },
       data: {
@@ -110,10 +142,38 @@ export async function saveCommitteeDecision(
         paymentConditionId: paymentCondition.id,
         paymentConditionCode: paymentCondition.code,
         paymentConditionName: paymentCondition.name,
-        bidAmountWithVat: input.bidAmountWithVat,
-        bidAmountWithoutVat: input.bidAmountWithoutVat,
+        bidAmountWithVat: withVat.totalNpr > 0 ? withVat.totalNpr : null,
+        bidAmountWithoutVat: withoutVat.totalNpr,
       },
     });
+
+    const lineRows = [
+      ...withoutVat.lines.map((line) => ({
+        bidderId: input.winnerBidderId,
+        amountKind: BID_AMOUNT_KIND_WITHOUT_VAT,
+        currencyId: line.currencyId,
+        currencyCode: line.currencyCode,
+        currencyName: line.currencyName,
+        amount: line.amount,
+        forexRate: line.forexRate,
+        nprAmount: line.nprAmount,
+        sortOrder: line.sortOrder,
+      })),
+      ...withVat.lines.map((line) => ({
+        bidderId: input.winnerBidderId,
+        amountKind: BID_AMOUNT_KIND_WITH_VAT,
+        currencyId: line.currencyId,
+        currencyCode: line.currencyCode,
+        currencyName: line.currencyName,
+        amount: line.amount,
+        forexRate: line.forexRate,
+        nprAmount: line.nprAmount,
+        sortOrder: line.sortOrder,
+      })),
+    ];
+    if (lineRows.length > 0) {
+      await tx.bidderBidAmountLine.createMany({ data: lineRows });
+    }
 
     await tx.procurementWorkDayCategory.deleteMany({ where: { procurementId } });
     await tx.procurementWorkDayCategory.createMany({
@@ -143,7 +203,13 @@ export async function saveCommitteeDecision(
     action: AuditAction.UPDATE,
     entityType: "procurement",
     entityId: procurementId,
-    after: { ...input, pgAmount: pg.pgAmount, pgMethod: pg.method },
+    after: {
+      ...input,
+      bidAmountWithoutVat: withoutVat.totalNpr,
+      bidAmountWithVat: withVat.totalNpr > 0 ? withVat.totalNpr : null,
+      pgAmount: pg.pgAmount,
+      pgMethod: pg.method,
+    },
   });
 
   return serializeProcurement(procurementId);

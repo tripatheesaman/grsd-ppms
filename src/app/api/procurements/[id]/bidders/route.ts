@@ -5,6 +5,11 @@ import { ApiError } from "@/lib/api/errors";
 import { handleRoute, jsonOk } from "@/lib/api/response";
 import { dateOnlyToDb } from "@/lib/dates";
 import { prisma } from "@/lib/prisma";
+import {
+  assertWorkflowDateRules,
+  validateBidderEntry,
+  validateBidderFinalize,
+} from "@/lib/procurement/workflow-date-validation";
 import { requirePermission } from "@/lib/security/auth-guard";
 
 const BIDDER_ENTRY_STATUSES: ProcurementStatus[] = [
@@ -49,6 +54,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
       throw new ApiError(400, "VALIDATION_ERROR", "At least one bidder is required");
     }
 
+    await assertWorkflowDateRules(proc, validateBidderEntry(proc));
+
     if (body.replaceAll) {
       await prisma.bidder.deleteMany({ where: { procurementId: id } });
     }
@@ -91,6 +98,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       if (bidderCount === 0) {
         throw new ApiError(400, "VALIDATION_ERROR", "Add at least one bidder before finishing");
       }
+      await assertWorkflowDateRules(proc, validateBidderFinalize(proc));
       nextStatus = ProcurementStatus.BIDDERS_ENTERED;
     } else if (proc.status === ProcurementStatus.BID_OPEN_DAY) {
       nextStatus = ProcurementStatus.BID_CLOSED;

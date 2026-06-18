@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { ApiError } from "@/lib/api/errors";
 import { handleRoute, jsonOk } from "@/lib/api/response";
-import { getWorkflowStageDefinition, slugifyFieldKey } from "@/lib/procurement/stage-field-catalog";
+import { getWorkflowStageDefinition, slugifyFieldKey, customFieldRef } from "@/lib/procurement/stage-field-catalog";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/security/auth-guard";
 
@@ -99,6 +99,21 @@ export async function POST(request: NextRequest) {
         isActive: body.isActive ?? true,
       },
     });
+
+    const existingOrder = await prisma.procurementWorkflowFieldOrder.findMany({
+      where: { stageKey: body.stageKey },
+      orderBy: { sortOrder: "asc" },
+    });
+    if (existingOrder.length > 0) {
+      const maxOrder = existingOrder.reduce((m, r) => Math.max(m, r.sortOrder), -1);
+      await prisma.procurementWorkflowFieldOrder.create({
+        data: {
+          stageKey: body.stageKey,
+          fieldRef: customFieldRef(row.id),
+          sortOrder: maxOrder + 1,
+        },
+      });
+    }
 
     return jsonOk(serializeField(row), 201);
   });

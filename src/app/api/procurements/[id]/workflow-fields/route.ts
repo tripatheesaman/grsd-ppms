@@ -3,9 +3,22 @@ import { z } from "zod";
 import { handleRoute, jsonOk } from "@/lib/api/response";
 import { prisma } from "@/lib/prisma";
 import { loadProcurementSnapshot } from "@/lib/procurement/settings-snapshot";
+import { loadWorkflowFieldOrderMap } from "@/lib/procurement/workflow-field-order";
 import { requirePermission } from "@/lib/security/auth-guard";
 
 type RouteContext = { params: Promise<{ id: string }> };
+
+function groupFieldOrderByStage(
+  rows: Array<{ stageKey: string; fieldRef: string; sortOrder: number }>,
+): Record<string, Array<{ fieldRef: string; sortOrder: number }>> {
+  const map: Record<string, Array<{ fieldRef: string; sortOrder: number }>> = {};
+  for (const row of rows) {
+    const list = map[row.stageKey] ?? [];
+    list.push({ fieldRef: row.fieldRef, sortOrder: row.sortOrder });
+    map[row.stageKey] = list;
+  }
+  return map;
+}
 
 export async function GET(request: NextRequest, context: RouteContext) {
   return handleRoute(async () => {
@@ -34,12 +47,19 @@ export async function GET(request: NextRequest, context: RouteContext) {
             orderBy: [{ stageKey: "asc" }, { sortOrder: "asc" }],
           });
 
+    const snapshotOrder = snapshot?.workflowFieldOrder ?? [];
+    const fieldOrderByStage =
+      snapshotOrder.length > 0
+        ? groupFieldOrderByStage(snapshotOrder)
+        : await loadWorkflowFieldOrderMap();
+
     return jsonOk({
       fields: fields.map((f) => ({
         ...f,
         optionsJson: Array.isArray(f.optionsJson) ? f.optionsJson : null,
       })),
       values: Object.fromEntries(values.map((v) => [v.fieldId, v.value])),
+      fieldOrderByStage,
     });
   });
 }

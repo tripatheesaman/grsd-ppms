@@ -1,4 +1,8 @@
 import { formatCurrency } from "@/lib/currency";
+import {
+  BID_AMOUNT_KIND_WITHOUT_VAT,
+  BID_AMOUNT_KIND_WITH_VAT,
+} from "@/lib/procurement/bid-amount-lines";
 import { formatBidVsCostEstimateLabel } from "@/lib/formulas/pg-calculator";
 import { formatDualDate } from "@/lib/dates/display";
 import { getWorkflowStageDefinition } from "@/lib/procurement/stage-field-catalog";
@@ -93,6 +97,14 @@ export function buildSummaryReferenceRows(proc: Record<string, unknown>): Detail
   return refs.map((r) => ({ label: r.type, value: r.number }));
 }
 
+type BidAmountLineInfo = {
+  amountKind: string;
+  currencyCode: string;
+  amount: number;
+  forexRate: number | null;
+  nprAmount: number;
+};
+
 type WinnerInfo = {
   name: string;
   bidCurrencyCode?: string | null;
@@ -102,6 +114,7 @@ type WinnerInfo = {
   paymentConditionName?: string | null;
   bidAmountWithVat: number | null;
   bidAmountWithoutVat: number | null;
+  bidAmountLines?: BidAmountLineInfo[];
 };
 
 export function getWinnerInfo(proc: Record<string, unknown>): WinnerInfo | null {
@@ -127,7 +140,24 @@ export function getWinnerInfo(proc: Record<string, unknown>): WinnerInfo | null 
       winner.bidAmountWithVat != null ? Number(winner.bidAmountWithVat) : null,
     bidAmountWithoutVat:
       winner.bidAmountWithoutVat != null ? Number(winner.bidAmountWithoutVat) : null,
+    bidAmountLines: ((winner.bidAmountLines as BidAmountLineInfo[] | undefined) ?? []).map(
+      (line) => ({
+        amountKind: String(line.amountKind),
+        currencyCode: String(line.currencyCode),
+        amount: Number(line.amount),
+        forexRate: line.forexRate != null ? Number(line.forexRate) : null,
+        nprAmount: Number(line.nprAmount),
+      }),
+    ),
   };
+}
+
+function formatBidLineValue(line: BidAmountLineInfo): string {
+  const amount = formatCurrency(line.amount, { currencyCode: line.currencyCode });
+  if (line.forexRate != null) {
+    return `${amount} @ ${line.forexRate} = ${formatCurrency(line.nprAmount)}`;
+  }
+  return amount;
 }
 
 function workDaysTotal(proc: Record<string, unknown>): number {
@@ -146,17 +176,36 @@ export function buildWinnerAwardRows(proc: Record<string, unknown>): DetailRow[]
   const rows: DetailRow[] = [
     { label: "Winner", value: winner.name },
     {
-      label: "Bid amount (ex-VAT)",
-      value: formatCurrency(winner.bidAmountWithoutVat, {
-        currencyCode: winner.bidCurrencyCode,
-      }),
+      label: "Bid amount (ex-VAT, NPR total)",
+      value: formatCurrency(winner.bidAmountWithoutVat),
     },
-    {
-      label: "Bid amount (with VAT)",
-      value: formatCurrency(winner.bidAmountWithVat, {
-        currencyCode: winner.bidCurrencyCode,
-      }),
-    },
+  ];
+
+  const withoutVatLines =
+    winner.bidAmountLines?.filter((line) => line.amountKind === BID_AMOUNT_KIND_WITHOUT_VAT) ?? [];
+  for (const line of withoutVatLines) {
+    rows.push({
+      label: `Ex-VAT line (${line.currencyCode})`,
+      value: formatBidLineValue(line),
+    });
+  }
+
+  if (winner.bidAmountWithVat != null) {
+    rows.push({
+      label: "Bid amount (with VAT, NPR total)",
+      value: formatCurrency(winner.bidAmountWithVat),
+    });
+    const withVatLines =
+      winner.bidAmountLines?.filter((line) => line.amountKind === BID_AMOUNT_KIND_WITH_VAT) ?? [];
+    for (const line of withVatLines) {
+      rows.push({
+        label: `With VAT line (${line.currencyCode})`,
+        value: formatBidLineValue(line),
+      });
+    }
+  }
+
+  rows.push(
     { label: "Bid currency", value: winner.bidCurrencyCode ?? "—" },
     { label: "Payment condition", value: winner.paymentConditionName ?? "—" },
     {
@@ -169,14 +218,12 @@ export function buildWinnerAwardRows(proc: Record<string, unknown>): DetailRow[]
             )
           : "—",
     },
-  ];
+  );
 
   if (proc.pgAmount != null) {
     rows.push({
       label: "PG amount",
-      value: formatCurrency(proc.pgAmount as number, {
-        currencyCode: winner.bidCurrencyCode,
-      }),
+      value: formatCurrency(proc.pgAmount as number),
     });
   }
   if (proc.warrantyDays != null) {

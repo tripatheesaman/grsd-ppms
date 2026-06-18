@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import { createToken } from "@/lib/security/hash";
 
 export type AccessPayload = {
   sub: string;
@@ -10,6 +11,7 @@ export type AccessPayload = {
 export type RefreshPayload = {
   sub: string;
   type: "refresh";
+  jti?: string;
 };
 
 function getSecret(kind: "access" | "refresh"): string {
@@ -27,7 +29,7 @@ export function signAccessToken(payload: Omit<AccessPayload, "type">): string {
 }
 
 export function signRefreshToken(userId: string): string {
-  return jwt.sign({ sub: userId, type: "refresh" }, getSecret("refresh"), {
+  return jwt.sign({ sub: userId, type: "refresh", jti: createToken() }, getSecret("refresh"), {
     expiresIn: "7d",
   });
 }

@@ -1,18 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { CustomWorkflowField } from "@/lib/procurement/stage-field-catalog";
+import type { CustomWorkflowField, WorkflowFieldOrderEntry } from "@/lib/procurement/stage-field-catalog";
 import {
   useGetProcurementWorkflowFieldsQuery,
   useSaveProcurementWorkflowFieldsMutation,
 } from "@/store/api/procurementsApi";
-import { useGetWorkflowFieldsQuery } from "@/store/api/settingsApi";
+import { useGetWorkflowFieldOrderQuery, useGetWorkflowFieldsQuery } from "@/store/api/settingsApi";
 
 export function useWorkflowCustomFieldsAll(procurementId: string | undefined) {
   const { data, refetch } = useGetProcurementWorkflowFieldsQuery(
     { procurementId: procurementId! },
     { skip: !procurementId },
   );
+  const { data: settingsFieldOrder } = useGetWorkflowFieldOrderQuery(undefined, {
+    skip: Boolean(procurementId),
+  });
   const [saveFields] = useSaveProcurementWorkflowFieldsMutation();
   const [localValues, setLocalValues] = useState<Record<string, string>>({});
 
@@ -20,6 +23,25 @@ export function useWorkflowCustomFieldsAll(procurementId: string | undefined) {
     () => (data?.fields ?? []) as CustomWorkflowField[],
     [data?.fields],
   );
+
+  const fieldOrderByStage = useMemo(() => {
+    if (procurementId && data?.fieldOrderByStage) {
+      return data.fieldOrderByStage as Record<string, WorkflowFieldOrderEntry[]>;
+    }
+    const rows = (settingsFieldOrder ?? []) as Array<{
+      stageKey?: string;
+      fieldRef: string;
+      sortOrder: number;
+    }>;
+    const map: Record<string, WorkflowFieldOrderEntry[]> = {};
+    for (const row of rows) {
+      if (!row.stageKey) continue;
+      const list = map[row.stageKey] ?? [];
+      list.push({ fieldRef: row.fieldRef, sortOrder: row.sortOrder });
+      map[row.stageKey] = list;
+    }
+    return map;
+  }, [data?.fieldOrderByStage, procurementId, settingsFieldOrder]);
 
   useEffect(() => {
     if (data?.values) {
@@ -40,6 +62,11 @@ export function useWorkflowCustomFieldsAll(procurementId: string | undefined) {
   const getFieldsForStage = useCallback(
     (stageKey: string) => fieldsByStage.get(stageKey) ?? [],
     [fieldsByStage],
+  );
+
+  const getFieldOrderForStage = useCallback(
+    (stageKey: string) => fieldOrderByStage[stageKey],
+    [fieldOrderByStage],
   );
 
   const setValue = useCallback((fieldId: string, value: string) => {
@@ -77,6 +104,7 @@ export function useWorkflowCustomFieldsAll(procurementId: string | undefined) {
   return {
     allFields,
     getFieldsForStage,
+    getFieldOrderForStage,
     values: localValues,
     setValue,
     validateStage,
@@ -88,6 +116,9 @@ export function useWorkflowCustomFieldsAll(procurementId: string | undefined) {
 export function useProcurementFormWorkflowFields(procurementId?: string) {
   const persisted = useWorkflowCustomFieldsAll(procurementId);
   const { data: settingsFields } = useGetWorkflowFieldsQuery("procurement_create", {
+    skip: Boolean(procurementId),
+  });
+  const { data: settingsFieldOrder } = useGetWorkflowFieldOrderQuery("procurement_create", {
     skip: Boolean(procurementId),
   });
   const [draftValues, setDraftValues] = useState<Record<string, string>>({});
@@ -109,6 +140,9 @@ export function useProcurementFormWorkflowFields(procurementId?: string) {
   );
 
   const values = procurementId ? persisted.values : draftValues;
+  const fieldOrder = procurementId
+    ? persisted.getFieldOrderForStage("procurement_create")
+    : ((settingsFieldOrder ?? []) as WorkflowFieldOrderEntry[]);
 
   const validate = useCallback(() => {
     for (const field of customFields) {
@@ -135,6 +169,7 @@ export function useProcurementFormWorkflowFields(procurementId?: string) {
 
   return {
     customFields,
+    fieldOrder,
     values,
     setValue,
     validate,

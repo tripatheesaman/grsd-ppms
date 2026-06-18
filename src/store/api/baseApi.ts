@@ -59,6 +59,7 @@ export const baseApi = createApi({
     "Calendar",
     "Reminders",
     "WorkflowFields",
+    "StageTemplates",
     "WorkflowFieldValues",
   ],
   endpoints: () => ({}),

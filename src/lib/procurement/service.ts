@@ -136,7 +136,7 @@ export async function serializeProcurement(id: string) {
       sbd: true,
       contractType: true,
       unit: true,
-      bidders: { include: { fieldValues: { include: { field: true } } } },
+      bidders: { include: { fieldValues: { include: { field: true } }, bidAmountLines: true } },
       pdiMembers: true,
       workflowFieldValues: { include: { field: true } },
     },
@@ -302,6 +302,18 @@ export async function serializeProcurement(id: string) {
       paymentConditionName: b.paymentConditionName,
       bidAmountWithVat: b.bidAmountWithVat != null ? Number(b.bidAmountWithVat) : null,
       bidAmountWithoutVat: b.bidAmountWithoutVat != null ? Number(b.bidAmountWithoutVat) : null,
+      bidAmountLines: b.bidAmountLines
+        .sort((a, c) => a.sortOrder - c.sortOrder)
+        .map((line) => ({
+          amountKind: line.amountKind,
+          currencyId: line.currencyId,
+          currencyCode: line.currencyCode,
+          currencyName: line.currencyName,
+          amount: Number(line.amount),
+          forexRate: line.forexRate != null ? Number(line.forexRate) : null,
+          nprAmount: Number(line.nprAmount),
+          sortOrder: line.sortOrder,
+        })),
     })),
     winnerBidder: winner
       ? {
@@ -318,6 +330,18 @@ export async function serializeProcurement(id: string) {
             winner.bidAmountWithVat != null ? Number(winner.bidAmountWithVat) : null,
           bidAmountWithoutVat:
             winner.bidAmountWithoutVat != null ? Number(winner.bidAmountWithoutVat) : null,
+          bidAmountLines: winner.bidAmountLines
+            .sort((a, c) => a.sortOrder - c.sortOrder)
+            .map((line) => ({
+              amountKind: line.amountKind,
+              currencyId: line.currencyId,
+              currencyCode: line.currencyCode,
+              currencyName: line.currencyName,
+              amount: Number(line.amount),
+              forexRate: line.forexRate != null ? Number(line.forexRate) : null,
+              nprAmount: Number(line.nprAmount),
+              sortOrder: line.sortOrder,
+            })),
         }
       : null,
     workflowFieldValues: proc.workflowFieldValues.map((v) => ({
@@ -328,6 +352,9 @@ export async function serializeProcurement(id: string) {
       fieldType: v.field.fieldType,
       value: v.value,
     })),
+    workflowDateValidationEnabled: await (
+      await import("@/lib/procurement/workflow-date-validation")
+    ).isWorkflowDateValidationEnabled(),
   };
 }
 
@@ -533,6 +560,9 @@ export async function transitionProcurement(
   if (!canTransition(proc.status, toStatus)) {
     throw new ApiError(400, "INVALID_TRANSITION", `Cannot transition from ${proc.status} to ${toStatus}`);
   }
+
+  const { assertWorkflowTransition } = await import("@/lib/procurement/workflow-date-validation");
+  await assertWorkflowTransition(proc, toStatus, { procurementId: id, payload });
 
   const update: Prisma.ProcurementUpdateInput = { status: toStatus };
   let pdiMembersInput: Array<{ name: string; designation: string }> | null = null;

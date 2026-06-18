@@ -65,7 +65,15 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
   return handleRoute(async () => {
     await requirePermission(request, "settings.manage");
     const { id } = await context.params;
-    await prisma.procurementWorkflowField.delete({ where: { id } });
+    const existing = await prisma.procurementWorkflowField.findUnique({ where: { id } });
+    if (!existing) throw new ApiError(404, "NOT_FOUND", "Field not found");
+
+    await prisma.$transaction([
+      prisma.procurementWorkflowFieldOrder.deleteMany({
+        where: { stageKey: existing.stageKey, fieldRef: `custom:${id}` },
+      }),
+      prisma.procurementWorkflowField.delete({ where: { id } }),
+    ]);
     return jsonOk({ success: true });
   });
 }

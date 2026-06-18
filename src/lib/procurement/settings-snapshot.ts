@@ -75,6 +75,11 @@ export type ProcurementSettingsSnapshot = {
     hint: string | null;
     isActive: boolean;
   }>;
+  workflowFieldOrder?: Array<{
+    stageKey: string;
+    fieldRef: string;
+    sortOrder: number;
+  }>;
 };
 
 export type ProcurementSnapshotSelection = {
@@ -144,6 +149,19 @@ async function loadActiveTemplateSnapshots(): Promise<TemplateRowSnapshot[]> {
     filePath: t.filePath,
     version: t.version,
     bidTypeId: t.bidTypeId,
+  }));
+}
+
+async function loadActiveWorkflowFieldOrderSnapshots(): Promise<
+  NonNullable<ProcurementSettingsSnapshot["workflowFieldOrder"]>
+> {
+  const rows = await prisma.procurementWorkflowFieldOrder.findMany({
+    orderBy: [{ stageKey: "asc" }, { sortOrder: "asc" }],
+  });
+  return rows.map((row) => ({
+    stageKey: row.stageKey,
+    fieldRef: row.fieldRef,
+    sortOrder: row.sortOrder,
   }));
 }
 
@@ -217,13 +235,15 @@ export async function captureProcurementSnapshot(
   },
   selection?: ProcurementSnapshotSelection,
 ): Promise<ProcurementSettingsSnapshot> {
-  const [settings, calendar, lookups, templates, procurement, workflowFields] = await Promise.all([
+  const [settings, calendar, lookups, templates, procurement, workflowFields, workflowFieldOrder] =
+    await Promise.all([
     loadSettings(),
     loadCalendarContext(),
     loadActiveLookups(),
     loadActiveTemplateSnapshots(),
     resolveSelectionSnapshot(bidType, selection),
     loadActiveWorkflowFieldSnapshots(),
+    loadActiveWorkflowFieldOrderSnapshots(),
   ]);
 
   return {
@@ -236,6 +256,7 @@ export async function captureProcurementSnapshot(
     templates,
     procurement,
     workflowFields,
+    workflowFieldOrder,
   };
 }
 
@@ -281,6 +302,7 @@ export function parseProcurementSettingsSnapshot(
     templates: value.templates ?? [],
     procurement: value.procurement,
     workflowFields: value.workflowFields ?? [],
+    workflowFieldOrder: value.workflowFieldOrder ?? [],
   };
 }
 

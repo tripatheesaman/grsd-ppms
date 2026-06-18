@@ -68,7 +68,7 @@ export function adToBs(adStr: string): string {
   let bsY = ANCHOR_BS.year;
   let bsM = ANCHOR_BS.month;
   let bsD = ANCHOR_BS.day;
-  let currentAD = new Date(ANCHOR_AD);
+  const currentAD = new Date(ANCHOR_AD);
 
   if (compareAd(target, currentAD) < 0) {
     while (compareAd(currentAD, target) > 0) {

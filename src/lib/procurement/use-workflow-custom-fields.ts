@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { CustomWorkflowField, WorkflowFieldOrderEntry } from "@/lib/procurement/stage-field-catalog";
 import {
   useGetProcurementWorkflowFieldsQuery,
@@ -17,7 +17,7 @@ export function useWorkflowCustomFieldsAll(procurementId: string | undefined) {
     skip: Boolean(procurementId),
   });
   const [saveFields] = useSaveProcurementWorkflowFieldsMutation();
-  const [localValues, setLocalValues] = useState<Record<string, string>>({});
+  const [valueOverrides, setValueOverrides] = useState<Record<string, string>>({});
 
   const allFields = useMemo(
     () => (data?.fields ?? []) as CustomWorkflowField[],
@@ -41,13 +41,12 @@ export function useWorkflowCustomFieldsAll(procurementId: string | undefined) {
       map[row.stageKey] = list;
     }
     return map;
-  }, [data?.fieldOrderByStage, procurementId, settingsFieldOrder]);
+  }, [data, procurementId, settingsFieldOrder]);
 
-  useEffect(() => {
-    if (data?.values) {
-      setLocalValues(data.values);
-    }
-  }, [data?.values]);
+  const localValues = useMemo(
+    () => ({ ...(data?.values ?? {}), ...valueOverrides }),
+    [data?.values, valueOverrides],
+  );
 
   const fieldsByStage = useMemo(() => {
     const map = new Map<string, CustomWorkflowField[]>();
@@ -70,7 +69,7 @@ export function useWorkflowCustomFieldsAll(procurementId: string | undefined) {
   );
 
   const setValue = useCallback((fieldId: string, value: string) => {
-    setLocalValues((prev) => ({ ...prev, [fieldId]: value }));
+    setValueOverrides((prev) => ({ ...prev, [fieldId]: value }));
   }, []);
 
   const validateStage = useCallback(

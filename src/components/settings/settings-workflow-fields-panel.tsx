@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { ArrowDown, ArrowUp, GripVertical, Plus, Save, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -42,7 +42,7 @@ export function SettingsWorkflowFieldsPanel() {
   const [newOptions, setNewOptions] = useState("");
   const [newRequired, setNewRequired] = useState(false);
   const [newHint, setNewHint] = useState("");
-  const [orderedLayout, setOrderedLayout] = useState<LayoutFieldItem[]>([]);
+  const [draftLayout, setDraftLayout] = useState<LayoutFieldItem[] | null>(null);
   const [orderDirty, setOrderDirty] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
@@ -66,24 +66,25 @@ export function SettingsWorkflowFieldsPanel() {
     [stageKey, stageFields, fieldOrder],
   );
 
-  useEffect(() => {
-    setOrderedLayout(defaultLayout);
-    setOrderDirty(false);
-  }, [defaultLayout, stageKey]);
+  const orderedLayout = orderDirty && draftLayout ? draftLayout : defaultLayout;
 
   const anchorOptions = stageDef.fields;
 
+  function resetOrderDraft() {
+    setDraftLayout(null);
+    setOrderDirty(false);
+  }
+
   function moveItem(from: number, to: number) {
-    if (from === to || from < 0 || to < 0 || from >= orderedLayout.length || to >= orderedLayout.length) {
+    const current = orderDirty && draftLayout ? draftLayout : defaultLayout;
+    if (from === to || from < 0 || to < 0 || from >= current.length || to >= current.length) {
       return;
     }
-    setOrderedLayout((prev) => {
-      const next = [...prev];
-      const [item] = next.splice(from, 1);
-      if (!item) return prev;
-      next.splice(to, 0, item);
-      return next;
-    });
+    const next = [...current];
+    const [item] = next.splice(from, 1);
+    if (!item) return;
+    next.splice(to, 0, item);
+    setDraftLayout(next);
     setOrderDirty(true);
   }
 
@@ -97,7 +98,7 @@ export function SettingsWorkflowFieldsPanel() {
         })),
       }).unwrap();
       toast.success("Field order saved");
-      setOrderDirty(false);
+      resetOrderDraft();
     } catch {
       toast.error("Failed to save field order");
     }
@@ -156,6 +157,7 @@ export function SettingsWorkflowFieldsPanel() {
           onChange={(e) => {
             setStageKey(e.target.value as WorkflowStageKey);
             setNewAnchor("");
+            resetOrderDraft();
           }}
         >
           {WORKFLOW_STAGE_DEFINITIONS.map((s) => (
